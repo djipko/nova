@@ -2,7 +2,7 @@
     "servers": [
         {
             "OS-DCF:diskConfig": "AUTO",
-            "OS-EXT-SRV-ATTR:host": "1ed961df12f5434a8e54e0efd1049fa5",
+            "OS-EXT-SRV-ATTR:host": "323475bf25e241ee852c22b1d35511f6",
             "OS-EXT-SRV-ATTR:hypervisor_hostname": null,
             "OS-EXT-SRV-ATTR:instance_name": "instance-00000001",
             "OS-EXT-STS:power_state": 1,
@@ -19,7 +19,7 @@
                 ]
             },
             "config_drive": "",
-            "created": "2012-09-12T17:16:15Z",
+            "created": "2012-09-13T17:48:47Z",
             "flavor": {
                 "id": "1",
                 "links": [
@@ -29,8 +29,8 @@
                     }
                 ]
             },
-            "hostId": "c161a6e3edcd047317a6cfbe599d7711850fd871210b62fdd2f6479e",
-            "id": "1d0f60bc-8c90-425d-8c64-cdaa49cd2303",
+            "hostId": "4a278c6190d5cdd3801fb7f44fe92f8690bb156d78af71a999816789",
+            "id": "66a1ff2c-1d4b-4afc-8bf0-cd3628b8af55",
             "image": {
                 "id": "70a599e0-31e7-49b7-b260-868f441e862b",
                 "links": [
@@ -40,13 +40,14 @@
                     }
                 ]
             },
+            "key_name": null,
             "links": [
                 {
-                    "href": "http://openstack.example.com/v2/openstack/servers/1d0f60bc-8c90-425d-8c64-cdaa49cd2303",
+                    "href": "http://openstack.example.com/v2/openstack/servers/66a1ff2c-1d4b-4afc-8bf0-cd3628b8af55",
                     "rel": "self"
                 },
                 {
-                    "href": "http://openstack.example.com/openstack/servers/1d0f60bc-8c90-425d-8c64-cdaa49cd2303",
+                    "href": "http://openstack.example.com/openstack/servers/66a1ff2c-1d4b-4afc-8bf0-cd3628b8af55",
                     "rel": "bookmark"
                 }
             ],
@@ -62,7 +63,7 @@
             ],
             "status": "ACTIVE",
             "tenant_id": "openstack",
-            "updated": "2012-09-12T17:16:15Z",
+            "updated": "2012-09-13T17:48:47Z",
             "user_id": "fake"
         }
     ]

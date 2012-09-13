@@ -1,0 +1,5 @@
+
+            <target iqn.2011-09.org.foo.bar:blaa>
+                backing-store /foo
+            </target>
+        
