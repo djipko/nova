@@ -1,8 +1,8 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<server xmlns:OS-DCF="http://docs.openstack.org/compute/ext/disk_config/api/v1.1" xmlns:atom="http://www.w3.org/2005/Atom" xmlns="http://docs.openstack.org/compute/api/v1.1" id="c08868f8-5857-4a87-ac74-d5c643fa96f0" adminPass="TRSik7edFGUR" OS-DCF:diskConfig="AUTO">
+<server xmlns:OS-DCF="http://docs.openstack.org/compute/ext/disk_config/api/v1.1" xmlns:atom="http://www.w3.org/2005/Atom" xmlns="http://docs.openstack.org/compute/api/v1.1" id="a8505d8c-3972-4738-8dcd-37e7f6092201" adminPass="F9jtQgMom657" OS-DCF:diskConfig="AUTO">
   <metadata/>
-  <atom:link href="http://openstack.example.com/v2/openstack/servers/c08868f8-5857-4a87-ac74-d5c643fa96f0" rel="self"/>
-  <atom:link href="http://openstack.example.com/openstack/servers/c08868f8-5857-4a87-ac74-d5c643fa96f0" rel="bookmark"/>
+  <atom:link href="http://openstack.example.com/v2/openstack/servers/a8505d8c-3972-4738-8dcd-37e7f6092201" rel="self"/>
+  <atom:link href="http://openstack.example.com/openstack/servers/a8505d8c-3972-4738-8dcd-37e7f6092201" rel="bookmark"/>
   <security_groups>
     <security_group name="default"/>
   </security_groups>

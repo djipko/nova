@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<server xmlns:OS-DCF="http://docs.openstack.org/compute/ext/disk_config/api/v1.1" xmlns:OS-EXT-SRV-ATTR="http://docs.openstack.org/compute/ext/extended_status/api/v1.1" xmlns:OS-EXT-STS="http://docs.openstack.org/compute/ext/extended_status/api/v1.1" xmlns:atom="http://www.w3.org/2005/Atom" xmlns="http://docs.openstack.org/compute/api/v1.1" status="ACTIVE" updated="2012-09-13T17:48:51Z" hostId="0561ef933324fde4f3cf50b8f17d901ef421a39508a8af4f88c1d315" name="new-server-test" created="2012-09-13T17:48:51Z" userId="fake" tenantId="openstack" accessIPv4="" accessIPv6="" progress="0" id="dfd2744a-98bf-42bc-90ba-bbe8b23fb67c" key_name="None" config_drive="" OS-EXT-SRV-ATTR:vm_state="active" OS-EXT-SRV-ATTR:task_state="None" OS-EXT-SRV-ATTR:power_state="1" OS-EXT-SRV-ATTR:instance_name="instance-00000001" OS-EXT-SRV-ATTR:host="cc3330d0a94642b7ad19a2e5e32be446" OS-EXT-SRV-ATTR:hypervisor_hostname="None" OS-DCF:diskConfig="AUTO">
+<server xmlns:OS-DCF="http://docs.openstack.org/compute/ext/disk_config/api/v1.1" xmlns:OS-EXT-SRV-ATTR="http://docs.openstack.org/compute/ext/extended_status/api/v1.1" xmlns:OS-EXT-STS="http://docs.openstack.org/compute/ext/extended_status/api/v1.1" xmlns:atom="http://www.w3.org/2005/Atom" xmlns="http://docs.openstack.org/compute/api/v1.1" status="ACTIVE" updated="2012-09-14T08:13:04Z" hostId="b1a4ac7b9b954243aeaac9fce4c260e7ff9a309994c57d406033d617" name="new-server-test" created="2012-09-14T08:13:03Z" userId="fake" tenantId="openstack" accessIPv4="" accessIPv6="" progress="0" id="299c3e17-f804-4ec0-841f-f9b3d7fd974d" key_name="None" config_drive="" OS-EXT-SRV-ATTR:vm_state="active" OS-EXT-SRV-ATTR:task_state="None" OS-EXT-SRV-ATTR:power_state="1" OS-EXT-SRV-ATTR:instance_name="instance-00000001" OS-EXT-SRV-ATTR:host="a4a7227ba59b455090a5dbe3f52e05f0" OS-EXT-SRV-ATTR:hypervisor_hostname="None" OS-DCF:diskConfig="AUTO">
   <image id="70a599e0-31e7-49b7-b260-868f441e862b">
     <atom:link href="http://openstack.example.com/openstack/images/70a599e0-31e7-49b7-b260-868f441e862b" rel="bookmark"/>
   </image>
@@ -14,8 +14,8 @@
       <ip version="4" addr="192.168.0.3"/>
     </network>
   </addresses>
-  <atom:link href="http://openstack.example.com/v2/openstack/servers/dfd2744a-98bf-42bc-90ba-bbe8b23fb67c" rel="self"/>
-  <atom:link href="http://openstack.example.com/openstack/servers/dfd2744a-98bf-42bc-90ba-bbe8b23fb67c" rel="bookmark"/>
+  <atom:link href="http://openstack.example.com/v2/openstack/servers/299c3e17-f804-4ec0-841f-f9b3d7fd974d" rel="self"/>
+  <atom:link href="http://openstack.example.com/openstack/servers/299c3e17-f804-4ec0-841f-f9b3d7fd974d" rel="bookmark"/>
   <security_groups>
     <security_group name="default"/>
   </security_groups>

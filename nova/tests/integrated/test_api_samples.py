@@ -567,5 +567,6 @@ class ExtendedServerAttributesJsonTest(ServersSampleBase):
         subs = self._get_regexes()
         subs['hostid'] = '[a-f0-9]+'
         subs['id'] = uuid
+        subs['instance_name'] = 'instance-\d{8}'
         return self._verify_response('extended-server-attrs-get',
                                      subs, response)        
