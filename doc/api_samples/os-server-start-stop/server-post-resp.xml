@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<server xmlns:atom="http://www.w3.org/2005/Atom" xmlns="http://docs.openstack.org/compute/api/v1.1" id="c0c5279a-6b45-463e-b0c7-226c3f43a9f0" adminPass="zSCJxhu8nNZE">
+<server xmlns:atom="http://www.w3.org/2005/Atom" xmlns="http://docs.openstack.org/compute/api/v1.1" id="8ab6b555-b9ab-46bd-ae73-44d89bc69e52" adminPass="TTvxpwwCSL82">
   <metadata/>
-  <atom:link href="http://openstack.example.com/v2/openstack/servers/c0c5279a-6b45-463e-b0c7-226c3f43a9f0" rel="self"/>
-  <atom:link href="http://openstack.example.com/openstack/servers/c0c5279a-6b45-463e-b0c7-226c3f43a9f0" rel="bookmark"/>
+  <atom:link href="http://openstack.example.com/v2/openstack/servers/8ab6b555-b9ab-46bd-ae73-44d89bc69e52" rel="self"/>
+  <atom:link href="http://openstack.example.com/openstack/servers/8ab6b555-b9ab-46bd-ae73-44d89bc69e52" rel="bookmark"/>
 </server>

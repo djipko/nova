@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <servers xmlns:atom="http://www.w3.org/2005/Atom" xmlns="http://docs.openstack.org/compute/api/v1.1">
-  <server name="new-server-test" id="81ae0ca4-c12d-4a00-a74b-8272b8f6540e">
-    <atom:link href="http://openstack.example.com/v2/openstack/servers/81ae0ca4-c12d-4a00-a74b-8272b8f6540e" rel="self"/>
-    <atom:link href="http://openstack.example.com/openstack/servers/81ae0ca4-c12d-4a00-a74b-8272b8f6540e" rel="bookmark"/>
+  <server name="new-server-test" id="d1466602-9db9-4b54-8b1e-15d8bb77cec2">
+    <atom:link href="http://openstack.example.com/v2/openstack/servers/d1466602-9db9-4b54-8b1e-15d8bb77cec2" rel="self"/>
+    <atom:link href="http://openstack.example.com/openstack/servers/d1466602-9db9-4b54-8b1e-15d8bb77cec2" rel="bookmark"/>
   </server>
 </servers>

@@ -1,44 +1,47 @@
 {
     "servers": [
         {
+            "OS-EXT-SRV-ATTR:host": "%(compute_host)s",
+            "OS-EXT-SRV-ATTR:hypervisor_hostname": null,
+            "OS-EXT-SRV-ATTR:instance_name": "%(instance_name)s",
             "accessIPv4": "",
             "accessIPv6": "",
             "addresses": {
                 "private": [
                     {
-                        "addr": "192.168.0.3",
+                        "addr": "%(ip)s",
                         "version": 4
                     }
                 ]
             },
-            "created": "2012-09-14T09:30:42Z",
+            "created": "%(timestamp)s",
             "flavor": {
                 "id": "1",
                 "links": [
                     {
-                        "href": "http://openstack.example.com/openstack/flavors/1",
+                        "href": "%(host)s/openstack/flavors/1",
                         "rel": "bookmark"
                     }
                 ]
             },
-            "hostId": "2fb117d324f55df953c7cfc658bbd43744fc5b2fbde3cfdf8003c0e5",
-            "id": "7a97be4c-b6d3-411c-9f6b-25e7f83227f3",
+            "hostId": "%(hostid)s",
+            "id": "%(id)s",
             "image": {
-                "id": "70a599e0-31e7-49b7-b260-868f441e862b",
+                "id": "%(uuid)s",
                 "links": [
                     {
-                        "href": "http://openstack.example.com/openstack/images/70a599e0-31e7-49b7-b260-868f441e862b",
+                        "href": "%(host)s/openstack/images/%(uuid)s",
                         "rel": "bookmark"
                     }
                 ]
             },
             "links": [
                 {
-                    "href": "http://openstack.example.com/v2/openstack/servers/7a97be4c-b6d3-411c-9f6b-25e7f83227f3",
+                    "href": "%(host)s/v2/openstack/servers/%(id)s",
                     "rel": "self"
                 },
                 {
-                    "href": "http://openstack.example.com/openstack/servers/7a97be4c-b6d3-411c-9f6b-25e7f83227f3",
+                    "href": "%(host)s/openstack/servers/%(id)s",
                     "rel": "bookmark"
                 }
             ],
@@ -49,7 +52,7 @@
             "progress": 0,
             "status": "ACTIVE",
             "tenant_id": "openstack",
-            "updated": "2012-09-14T09:30:42Z",
+            "updated": "%(timestamp)s",
             "user_id": "fake"
         }
     ]
