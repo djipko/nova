@@ -1,15 +1,15 @@
 {
     "server": {
         "OS-DCF:diskConfig": "AUTO",
-        "adminPass": "LB3V6kgQCGwJ",
-        "id": "e4101266-a107-47cd-bd0c-34a725bba526",
+        "adminPass": "jnTE3SCk9PFN",
+        "id": "2b9e6e84-1c08-4c2d-b19d-4db78dbf1c48",
         "links": [
             {
-                "href": "http://openstack.example.com/v2/openstack/servers/e4101266-a107-47cd-bd0c-34a725bba526",
+                "href": "http://openstack.example.com/v2/openstack/servers/2b9e6e84-1c08-4c2d-b19d-4db78dbf1c48",
                 "rel": "self"
             },
             {
-                "href": "http://openstack.example.com/openstack/servers/e4101266-a107-47cd-bd0c-34a725bba526",
+                "href": "http://openstack.example.com/openstack/servers/2b9e6e84-1c08-4c2d-b19d-4db78dbf1c48",
                 "rel": "bookmark"
             }
         ],

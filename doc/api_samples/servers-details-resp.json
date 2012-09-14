@@ -11,7 +11,7 @@
                     }
                 ]
             },
-            "created": "2012-09-14T09:30:42Z",
+            "created": "2012-09-14T11:34:39Z",
             "flavor": {
                 "id": "1",
                 "links": [
@@ -21,8 +21,8 @@
                     }
                 ]
             },
-            "hostId": "2fb117d324f55df953c7cfc658bbd43744fc5b2fbde3cfdf8003c0e5",
-            "id": "7a97be4c-b6d3-411c-9f6b-25e7f83227f3",
+            "hostId": "d6193bde47314f269f74476af4a24c5bb213d3956029dbde59582009",
+            "id": "f83d1661-1ec3-4853-ba75-575fe9602e41",
             "image": {
                 "id": "70a599e0-31e7-49b7-b260-868f441e862b",
                 "links": [
@@ -34,11 +34,11 @@
             },
             "links": [
                 {
-                    "href": "http://openstack.example.com/v2/openstack/servers/7a97be4c-b6d3-411c-9f6b-25e7f83227f3",
+                    "href": "http://openstack.example.com/v2/openstack/servers/f83d1661-1ec3-4853-ba75-575fe9602e41",
                     "rel": "self"
                 },
                 {
-                    "href": "http://openstack.example.com/openstack/servers/7a97be4c-b6d3-411c-9f6b-25e7f83227f3",
+                    "href": "http://openstack.example.com/openstack/servers/f83d1661-1ec3-4853-ba75-575fe9602e41",
                     "rel": "bookmark"
                 }
             ],
@@ -49,7 +49,7 @@
             "progress": 0,
             "status": "ACTIVE",
             "tenant_id": "openstack",
-            "updated": "2012-09-14T09:30:42Z",
+            "updated": "2012-09-14T11:34:39Z",
             "user_id": "fake"
         }
     ]

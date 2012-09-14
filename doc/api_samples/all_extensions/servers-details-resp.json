@@ -2,7 +2,7 @@
     "servers": [
         {
             "OS-DCF:diskConfig": "AUTO",
-            "OS-EXT-SRV-ATTR:host": "8ef2dfa7352c4f0883feca7c29a29d8b",
+            "OS-EXT-SRV-ATTR:host": "0029b357428046eebd75821089211129",
             "OS-EXT-SRV-ATTR:hypervisor_hostname": null,
             "OS-EXT-SRV-ATTR:instance_name": "instance-00000001",
             "OS-EXT-STS:power_state": 1,
@@ -19,7 +19,7 @@
                 ]
             },
             "config_drive": "",
-            "created": "2012-09-14T09:30:36Z",
+            "created": "2012-09-14T11:34:33Z",
             "flavor": {
                 "id": "1",
                 "links": [
@@ -29,8 +29,8 @@
                     }
                 ]
             },
-            "hostId": "68c5a1a25a49ae3fddad25561a6e5e0a36e9c2dd11194580488115af",
-            "id": "25109c1a-e753-4906-8ef7-0304f0bdac36",
+            "hostId": "4b7cf3414fa0202543a3ead5136a596d7ae8a9457ea0dab3dd3c590d",
+            "id": "58d1a30a-7147-4b61-a160-49e0aafa1a48",
             "image": {
                 "id": "70a599e0-31e7-49b7-b260-868f441e862b",
                 "links": [
@@ -43,11 +43,11 @@
             "key_name": null,
             "links": [
                 {
-                    "href": "http://openstack.example.com/v2/openstack/servers/25109c1a-e753-4906-8ef7-0304f0bdac36",
+                    "href": "http://openstack.example.com/v2/openstack/servers/58d1a30a-7147-4b61-a160-49e0aafa1a48",
                     "rel": "self"
                 },
                 {
-                    "href": "http://openstack.example.com/openstack/servers/25109c1a-e753-4906-8ef7-0304f0bdac36",
+                    "href": "http://openstack.example.com/openstack/servers/58d1a30a-7147-4b61-a160-49e0aafa1a48",
                     "rel": "bookmark"
                 }
             ],
@@ -63,7 +63,7 @@
             ],
             "status": "ACTIVE",
             "tenant_id": "openstack",
-            "updated": "2012-09-14T09:30:36Z",
+            "updated": "2012-09-14T11:34:34Z",
             "user_id": "fake"
         }
     ]

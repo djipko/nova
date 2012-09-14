@@ -1,7 +1,7 @@
 {
     "servers": [
         {
-            "OS-EXT-SRV-ATTR:host": "c90b8445a27f4057ac2457d4f511a617",
+            "OS-EXT-SRV-ATTR:host": "9586519942e44342951774046a87461c",
             "OS-EXT-SRV-ATTR:hypervisor_hostname": null,
             "OS-EXT-SRV-ATTR:instance_name": "instance-00000001",
             "accessIPv4": "",
@@ -14,7 +14,7 @@
                     }
                 ]
             },
-            "created": "2012-09-14T09:30:19Z",
+            "created": "2012-09-14T11:34:16Z",
             "flavor": {
                 "id": "1",
                 "links": [
@@ -24,8 +24,8 @@
                     }
                 ]
             },
-            "hostId": "5cb28923c8cc3f45fca3dd884249a8bf98f8a81900dd4b244d446cfd",
-            "id": "f678aaae-1430-409d-8a48-efa08b885b25",
+            "hostId": "e582b9e198adcce48c3bf11ff913e91bd7e0dfdc82213f11d6888002",
+            "id": "1f7d8e76-ba0f-4060-9e5d-859edde5838e",
             "image": {
                 "id": "70a599e0-31e7-49b7-b260-868f441e862b",
                 "links": [
@@ -37,11 +37,11 @@
             },
             "links": [
                 {
-                    "href": "http://openstack.example.com/v2/openstack/servers/f678aaae-1430-409d-8a48-efa08b885b25",
+                    "href": "http://openstack.example.com/v2/openstack/servers/1f7d8e76-ba0f-4060-9e5d-859edde5838e",
                     "rel": "self"
                 },
                 {
-                    "href": "http://openstack.example.com/openstack/servers/f678aaae-1430-409d-8a48-efa08b885b25",
+                    "href": "http://openstack.example.com/openstack/servers/1f7d8e76-ba0f-4060-9e5d-859edde5838e",
                     "rel": "bookmark"
                 }
             ],
@@ -52,7 +52,7 @@
             "progress": 0,
             "status": "ACTIVE",
             "tenant_id": "openstack",
-            "updated": "2012-09-14T09:30:19Z",
+            "updated": "2012-09-14T11:34:17Z",
             "user_id": "fake"
         }
     ]

@@ -580,4 +580,8 @@ class ExtendedServerAttributesJsonTest(ServersSampleBase):
         subs['id'] = uuid
         subs['instance_name'] = 'instance-\d{8}'
         return self._verify_response('extended-server-attrs-list',
-                                     subs, response)  
+                                     subs, response)
+    
+
+class ExtendedServerAttributesXmlTest(ExtendedServerAttributesJsonTest):
+    ctype = 'xml'
