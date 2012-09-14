@@ -211,6 +211,23 @@ class ApiSampleTestBase(integrated_helpers._IntegratedTestBase):
             'compute_host': self.compute.host,
             'text': text,
         }
+    
+    def _additional_regexes(self, *args, **kwargs):
+        """ Supply additional regexes
+        
+        Redifine this method in subclasses to add
+        aditional regexes that can be paramterized.
+        """
+        
+        return {}
+    
+    def _get_all_regexes(self, *args, **kwargs):
+        """Get all regexes defined for the class."""
+        regexes = self._get_regexes()
+        regexes.update(self._additional_regexes(*args, **kwargs))
+        
+        return regexes
+
 
     def _get_response(self, url, method, body=None, strip_version=False):
         headers = {}
@@ -256,6 +273,12 @@ class ServersSampleBase(ApiSampleTestBase):
         self.assertEqual(response.status, 202)
         subs = self._get_regexes()
         return self._verify_response('server-post-resp', subs, response)
+    
+    def _additional_regexes(self, uuid):
+        return {
+            'hostid' : '[a-f0-9]+',
+            'id' : uuid,
+        }
 
 
 class ServersSampleJsonTest(ServersSampleBase):
@@ -265,26 +288,21 @@ class ServersSampleJsonTest(ServersSampleBase):
     def test_servers_get(self):
         uuid = self.test_servers_post()
         response = self._do_get('servers/%s' % uuid)
-        subs = self._get_regexes()
-        subs['hostid'] = '[a-f0-9]+'
-        subs['id'] = uuid
+        subs = self._get_all_regexes(uuid)
         return self._verify_response('server-get-resp', subs, response)
 
     def test_servers_list(self):
         uuid = self._post_server()
         response = self._do_get('servers')
         self.assertEqual(response.status, 200)
-        subs = self._get_regexes()
-        subs['id'] = uuid
+        subs = self._get_all_regexes(uuid)
         return self._verify_response('servers-list-resp', subs, response)
 
     def test_servers_details(self):
         uuid = self._post_server()
         response = self._do_get('servers/detail')
         self.assertEqual(response.status, 200)
-        subs = self._get_regexes()
-        subs['hostid'] = '[a-f0-9]+'
-        subs['id'] = uuid
+        subs = self._get_all_regexes(uuid)
         return self._verify_response('servers-details-resp', subs, response)
 
 
@@ -560,14 +578,18 @@ class ExtendedServerAttributesJsonTest(ServersSampleBase):
                      ".extended_server_attributes" + \
                      ".Extended_server_attributes"
     
+    def _additional_regexes(self, uuid):
+        return {
+            'id' : uuid,
+            'hostid' : '[a-f0-9]+',
+            'instance_name' : 'instance-\d{8}',
+        }
+    
     def test_extended_server_attrs_get(self):
         uuid = self._post_server()
         
         response = self._do_get('servers/%s' % uuid)
-        subs = self._get_regexes()
-        subs['hostid'] = '[a-f0-9]+'
-        subs['id'] = uuid
-        subs['instance_name'] = 'instance-\d{8}'
+        subs = self._get_all_regexes(uuid)
         return self._verify_response('extended-server-attrs-get',
                                      subs, response)        
 
@@ -575,10 +597,7 @@ class ExtendedServerAttributesJsonTest(ServersSampleBase):
         uuid = self._post_server()
         
         response = self._do_get('servers/detail')
-        subs = self._get_regexes()
-        subs['hostid'] = '[a-f0-9]+'
-        subs['id'] = uuid
-        subs['instance_name'] = 'instance-\d{8}'
+        subs = self._get_all_regexes(uuid)
         return self._verify_response('extended-server-attrs-list',
                                      subs, response)
     
