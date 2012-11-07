@@ -1107,6 +1107,17 @@ class Controller(wsgi.Controller):
 
         return image_uuid
 
+    def _get_image_from_req_data(self, data):
+        """
+        Get image data from the request or raise appropriate
+        exceptions
+
+        If no image is supplied - checks to see if there is
+        block devices set and proper extesions loaded.
+        """
+        pass
+
+
     def _flavor_id_from_req_data(self, data):
         try:
             flavor_ref = data['server']['flavorRef']
