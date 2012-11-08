@@ -435,8 +435,8 @@ class API(base.Base):
                 config_drive = None
 
                 # Ensure config_drive image exists
-                cd_image_service = glance.get_remote_image_service(
-                    context, config_drive)
+                cd_image_service, config_drive_id = glance.get_remote_image_service(
+                    context, config_drive_id)
                 cd_image_service.show(context, config_drive_id)
 
             if key_data is None and key_name:
@@ -482,7 +482,6 @@ class API(base.Base):
                 'access_ip_v6': access_ip_v6,
                 'availability_zone': availability_zone,
                 'root_device_name': root_device_name,
-                'architecture': architecture,
                 'progress': 0}
 
             if user_data:
@@ -640,12 +639,13 @@ class API(base.Base):
         # require elevated context?
         elevated = context.elevated()
         instance_uuid = instance['uuid']
-        mappings = image['properties'].get('mappings', [])
+        image_properties = image.get('properties', {})
+        mappings = image_properties.get('mappings', [])
         if mappings:
             self._update_image_block_device_mapping(elevated,
                     instance_type, instance_uuid, mappings)
 
-        image_bdm = image['properties'].get('block_device_mapping', [])
+        image_bdm = image_properties.get('block_device_mapping', [])
         for mapping in (image_bdm, block_device_mapping):
             if not mapping:
                 continue
@@ -655,9 +655,10 @@ class API(base.Base):
     def _populate_instance_shutdown_terminate(self, instance, image,
                                               block_device_mapping):
         """Populate instance shutdown_terminate information."""
+        image_properties = image.get('properties', {})
         if (block_device_mapping or
-            image['properties'].get('mappings') or
-            image['properties'].get('block_device_mapping')):
+            image_properties.get('mappings') or
+            image_properties.get('block_device_mapping')):
             instance['shutdown_terminate'] = False
 
     def _populate_instance_names(self, instance):
@@ -678,6 +679,7 @@ class API(base.Base):
     def _populate_instance_for_create(self, base_options, image,
             security_groups):
         """Build the beginning of a new instance."""
+        image_properties = image.get('properties', {})
 
         instance = base_options
         if not instance.get('uuid'):
@@ -688,19 +690,19 @@ class API(base.Base):
         instance['launch_index'] = 0
         instance['vm_state'] = vm_states.BUILDING
         instance['task_state'] = task_states.SCHEDULING
-        instance['architecture'] = image['properties'].get('architecture')
+        instance['architecture'] = image_properties.get('architecture')
         instance['info_cache'] = {'network_info': '[]'}
 
         # Store image properties so we can use them later
         # (for notifications, etc).  Only store what we can.
         instance.setdefault('system_metadata', {})
-        for key, value in image['properties'].iteritems():
+        for key, value in image_properties.iteritems():
             new_value = str(value)[:255]
             instance['system_metadata']['image_%s' % key] = new_value
 
         # Keep a record of the original base image that this
         # image's instance is derived from:
-        base_image_ref = image['properties'].get('base_image_ref')
+        base_image_ref = image_properties.get('base_image_ref')
         if not base_image_ref:
             # base image ref property not previously set through a snapshot.
             # default to using the image ref as the base:
