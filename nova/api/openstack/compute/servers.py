@@ -742,8 +742,7 @@ class Controller(wsgi.Controller):
         self._validate_server_name(name)
         name = name.strip()
 
-        image_href = self._image_ref_from_req_data(body)
-        image_href = self._image_uuid_from_href(image_href)
+        image_uuid = self._image_from_req_data(body)
 
         personality = server_dict.get('personality')
         config_drive = None
@@ -854,7 +853,7 @@ class Controller(wsgi.Controller):
 
             (instances, resv_id) = self.compute_api.create(context,
                             inst_type,
-                            image_href,
+                            image_uuid,
                             display_name=name,
                             display_description=name,
                             key_name=key_name,
@@ -1107,7 +1106,7 @@ class Controller(wsgi.Controller):
 
         return image_uuid
 
-    def _get_image_from_req_data(self, data):
+    def _image_from_req_data(self, data):
         """
         Get image data from the request or raise appropriate
         exceptions
@@ -1115,8 +1114,15 @@ class Controller(wsgi.Controller):
         If no image is supplied - checks to see if there is
         block devices set and proper extesions loaded.
         """
-        pass
+        image_ref = data['server'].get('imageRef')
+        bdm = data['server'].get('block_device_mapping')
 
+        if not image_ref and bdm and self.ext_mgr.is_loaded('os-volumes'):
+            return None
+        else:
+            image_href = self._image_ref_from_req_data(data)
+            image_uuid = self._image_uuid_from_href(image_href)
+            return image_uuid
 
     def _flavor_id_from_req_data(self, data):
         try:
