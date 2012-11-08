@@ -340,9 +340,11 @@ class API(base.Base):
 
     @staticmethod
     def _inherit_properties_from_image(image, auto_disk_config):
+        image_properties = image.get('properties', {})
+
         def prop(prop_, prop_type=None):
             """Return the value of an image property."""
-            value = image['properties'].get(prop_)
+            value = image_properties.get(prop_)
 
             if value is not None:
                 if prop_type == 'bool':
@@ -408,16 +410,22 @@ class API(base.Base):
             self._check_injected_file_quota(context, injected_files)
             self._check_requested_networks(context, requested_networks)
 
-            (image_service, image_id) = glance.get_remote_image_service(
-                    context, image_href)
-            image = image_service.show(context, image_id)
-            if image['status'] != 'active':
-                raise exception.ImageNotActive(image_id=image_id)
+            if image_href:
+                (image_service, image_id) = glance.get_remote_image_service(
+                        context, image_href)
+                image = image_service.show(context, image_id)
+                if image['status'] != 'active':
+                    raise exception.ImageNotActive(image_id=image_id)
 
-            if instance_type['memory_mb'] < int(image.get('min_ram') or 0):
-                raise exception.InstanceTypeMemoryTooSmall()
-            if instance_type['root_gb'] < int(image.get('min_disk') or 0):
-                raise exception.InstanceTypeDiskTooSmall()
+                if instance_type['memory_mb'] < int(image.get('min_ram') or 0):
+                    raise exception.InstanceTypeMemoryTooSmall()
+                if instance_type['root_gb'] < int(image.get('min_disk') or 0):
+                    raise exception.InstanceTypeDiskTooSmall()
+
+                kernel_id, ramdisk_id = self._handle_kernel_and_ramdisk(
+                        context, kernel_id, ramdisk_id, image, image_service)
+            else:
+                image = {}
 
             # Handle config_drive
             config_drive_id = None
@@ -427,10 +435,9 @@ class API(base.Base):
                 config_drive = None
 
                 # Ensure config_drive image exists
-                image_service.show(context, config_drive_id)
-
-            kernel_id, ramdisk_id = self._handle_kernel_and_ramdisk(
-                    context, kernel_id, ramdisk_id, image, image_service)
+                cd_image_service = glance.get_remote_image_service(
+                    context, config_drive)
+                cd_image_service.show(context, config_drive_id)
 
             if key_data is None and key_name:
                 key_pair = self.db.key_pair_get(context, context.user_id,
@@ -440,11 +447,8 @@ class API(base.Base):
             if reservation_id is None:
                 reservation_id = utils.generate_uid('r')
 
-            # grab the architecture from glance
-            architecture = image['properties'].get('architecture', 'Unknown')
-
             root_device_name = block_device.properties_root_device_name(
-                image['properties'])
+                image.get('properties', {}))
 
             availability_zone, forced_host = self._handle_availability_zone(
                     availability_zone)
