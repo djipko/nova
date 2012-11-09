@@ -502,6 +502,14 @@ class ComputeTestCase(BaseTestCase):
                 self.compute.run_instance, self.context, instance=instance,
                 filter_properties=filter_properties)
 
+    def test_create_instance_no_image(self):
+        """Create instance with no image provided"""
+        params = {'image_ref' : ''}
+        instance = self._create_fake_instance(params)
+        self.compute.run_instance(self.context, instance=instance)
+        self._assert_state({'vm_state': vm_states.ACTIVE,
+                            'task_state': None})
+
     def test_default_access_ip(self):
         self.flags(default_access_ip_network_name='test1')
         fake_network.unset_stub_network_methods(self.stubs)
@@ -663,6 +671,21 @@ class ComputeTestCase(BaseTestCase):
                                                            instance['uuid'])
         self.assertEqual(len(bdms), 0)
 
+    def test_run_terminate_no_image(self):
+        """
+        Make sure instance started without image (from volume)
+        can be termintad without issues
+        """
+        params = {'image_ref' : ''}
+        instance = self._create_fake_instance(params)
+        self.compute.run_instance(self.context, instance=instance)
+        self._assert_state({'vm_state': vm_states.ACTIVE,
+                            'task_state': None})
+
+        self.compute.terminate_instance(self.context, instance=instance)
+        instances = db.instance_get_all(self.context)
+        self.assertEqual(len(instances), 0)
+
     def test_terminate_no_network(self):
         # This is as reported in LP bug 1008875
         instance = jsonutils.to_primitive(self._create_fake_instance())
@@ -756,6 +779,18 @@ class ComputeTestCase(BaseTestCase):
         self.compute.start_instance(self.context, instance=instance)
         self.compute.terminate_instance(self.context, instance=instance)
 
+    def test_stop_start_no_image(self):
+        params = {'image_ref' : ''}
+        instance = self._create_fake_instance(params)
+        self.compute.run_instance(self.context, instance=instance)
+        db.instance_update(self.context, instance['uuid'],
+                           {"task_state": task_states.POWERING_OFF})
+        self.compute.stop_instance(self.context, instance=instance)
+        db.instance_update(self.context, instance['uuid'],
+                           {"task_state": task_states.POWERING_ON})
+        self.compute.start_instance(self.context, instance=instance)
+        self.compute.terminate_instance(self.context, instance=instance)
+
     def test_rescue(self):
         """Ensure instance can be rescued and unrescued"""
 
@@ -788,6 +823,18 @@ class ComputeTestCase(BaseTestCase):
         self.assertTrue(called['unrescued'])
 
         self.compute.terminate_instance(self.context, instance=instance)
+
+    def test_rescue_no_image(self):
+        params = {'image_ref' : ''}
+        instance = self._create_fake_instance(params)
+        instance_uuid = instance['uuid']
+        self.compute.run_instance(self.context, instance=instance)
+        db.instance_update(self.context, instance_uuid,
+                           {"task_state": task_states.RESCUING})
+        self.compute.rescue_instance(self.context, instance=instance)
+        db.instance_update(self.context, instance_uuid,
+                           {"task_state": task_states.UNRESCUING})
+        self.compute.unrescue_instance(self.context, instance=instance)
 
     def test_power_on(self):
         """Ensure instance can be powered on"""
@@ -880,6 +927,21 @@ class ComputeTestCase(BaseTestCase):
         self.compute.rebuild_instance(self.context, instance,
                                       image_ref, image_ref,
                                       injected_files=[],
+                                      new_pass="new_password",
+                                      orig_sys_metadata=sys_metadata)
+        self.compute.terminate_instance(self.context, instance=instance)
+
+    def test_rebuild_no_image(self):
+        """Ensure instance can be rebuilt when started with no image"""
+        params = {'image_ref' : ''}
+        instance = self._create_fake_instance(params)
+        sys_metadata = db.instance_system_metadata_get(self.context,
+                        instance['uuid'])
+        self.compute.run_instance(self.context, instance=instance)
+        db.instance_update(self.context, instance['uuid'],
+                           {"task_state": task_states.REBUILDING})
+        self.compute.rebuild_instance(self.context, instance,
+                                      '', '', injected_files=[],
                                       new_pass="new_password",
                                       orig_sys_metadata=sys_metadata)
         self.compute.terminate_instance(self.context, instance=instance)
@@ -1163,6 +1225,16 @@ class ComputeTestCase(BaseTestCase):
         """Ensure instance can be snapshotted"""
         instance = jsonutils.to_primitive(self._create_fake_instance())
         name = "myfakesnapshot"
+        self.compute.run_instance(self.context, instance=instance)
+        db.instance_update(self.context, instance['uuid'],
+                           {"task_state": task_states.IMAGE_SNAPSHOT})
+        self.compute.snapshot_instance(self.context, name, instance=instance)
+        self.compute.terminate_instance(self.context, instance=instance)
+
+    def test_snapshot_no_image(self):
+        params = {'image_ref' : ''}
+        name = "myfakesnapshot"
+        instance = self._create_fake_instance(params)
         self.compute.run_instance(self.context, instance=instance)
         db.instance_update(self.context, instance['uuid'],
                            {"task_state": task_states.IMAGE_SNAPSHOT})
