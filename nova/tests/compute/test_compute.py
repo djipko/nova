@@ -2853,12 +2853,12 @@ class ComputeAPITestCase(BaseTestCase):
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
 
         self.assertRaises(exception.InstanceTypeMemoryTooSmall,
-            self.compute_api.create, self.context, inst_type, None)
+            self.compute_api.create, self.context, inst_type, self.fake_image['id'])
 
         # Now increase the inst_type memory and make sure all is fine.
         inst_type['memory_mb'] = 2
         (refs, resv_id) = self.compute_api.create(self.context,
-                inst_type, None)
+                inst_type, self.fake_image['id'])
         db.instance_destroy(self.context, refs[0]['uuid'])
 
     def test_create_with_too_little_disk(self):
@@ -2874,12 +2874,12 @@ class ComputeAPITestCase(BaseTestCase):
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
 
         self.assertRaises(exception.InstanceTypeDiskTooSmall,
-            self.compute_api.create, self.context, inst_type, None)
+            self.compute_api.create, self.context, inst_type, self.fake_image['id'])
 
         # Now increase the inst_type disk space and make sure all is fine.
         inst_type['root_gb'] = 2
         (refs, resv_id) = self.compute_api.create(self.context,
-                inst_type, None)
+                inst_type, self.fake_image['id'])
         db.instance_destroy(self.context, refs[0]['uuid'])
 
     def test_create_just_enough_ram_and_disk(self):
@@ -2898,7 +2898,7 @@ class ComputeAPITestCase(BaseTestCase):
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
 
         (refs, resv_id) = self.compute_api.create(self.context,
-                inst_type, None)
+                inst_type, self.fake_image['id'])
         db.instance_destroy(self.context, refs[0]['uuid'])
 
     def test_create_with_no_ram_and_disk_reqs(self):
@@ -2913,7 +2913,7 @@ class ComputeAPITestCase(BaseTestCase):
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
 
         (refs, resv_id) = self.compute_api.create(self.context,
-                inst_type, None)
+                inst_type, self.fake_image['id'])
         db.instance_destroy(self.context, refs[0]['uuid'])
 
     def test_create_instance_defaults_display_name(self):
@@ -2921,7 +2921,8 @@ class ComputeAPITestCase(BaseTestCase):
         cases = [dict(), dict(display_name=None)]
         for instance in cases:
             (ref, resv_id) = self.compute_api.create(self.context,
-                instance_types.get_default_instance_type(), None, **instance)
+                instance_types.get_default_instance_type(),
+                'fake-image-uuid', **instance)
             try:
                 self.assertNotEqual(ref[0]['display_name'], None)
             finally:
@@ -2932,7 +2933,7 @@ class ComputeAPITestCase(BaseTestCase):
         (ref, resv_id) = self.compute_api.create(
                 self.context,
                 instance_type=instance_types.get_default_instance_type(),
-                image_href=None)
+                image_href='fake-image-uuid')
         try:
             sys_metadata = db.instance_system_metadata_get(self.context,
                     ref[0]['uuid'])
@@ -2989,8 +2990,8 @@ class ComputeAPITestCase(BaseTestCase):
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
 
         self.assertRaises(exception.InstanceUserDataTooLarge,
-            self.compute_api.create, self.context, inst_type, None,
-                          user_data=('1' * 65536))
+            self.compute_api.create, self.context, inst_type,
+            self.fake_image['id'], user_data=('1' * 65536))
 
     def test_create_with_malformed_user_data(self):
         """Test an instance type with malformed user data."""
@@ -3004,8 +3005,8 @@ class ComputeAPITestCase(BaseTestCase):
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
 
         self.assertRaises(exception.InstanceUserDataMalformed,
-            self.compute_api.create, self.context, inst_type, None,
-                          user_data='banana')
+            self.compute_api.create, self.context, inst_type,
+            self.fake_image['id'], user_data='banana')
 
     def test_create_with_base64_user_data(self):
         """Test an instance type with ok much user data."""
@@ -3021,7 +3022,7 @@ class ComputeAPITestCase(BaseTestCase):
         # NOTE(mikal): a string of length 48510 encodes to 65532 characters of
         # base64
         (refs, resv_id) = self.compute_api.create(
-            self.context, inst_type, None,
+            self.context, inst_type, self.fake_image['id'],
             user_data=base64.encodestring('1' * 48510))
         db.instance_destroy(self.context, refs[0]['uuid'])
 
@@ -5944,4 +5945,4 @@ class ComputeInactiveImageTestCase(BaseTestCase):
         inst_type = instance_types.get_instance_type_by_name('m1.tiny')
         self.assertRaises(exception.ImageNotActive,
                           self.compute_api.create,
-                          self.context, inst_type, None)
+                          self.context, inst_type, 'fake-image-uuid')
