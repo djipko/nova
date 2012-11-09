@@ -514,7 +514,10 @@ class ComputeManager(manager.SchedulerDependentManager):
         try:
             self._check_instance_not_already_created(context, instance)
             image_meta = self._check_image_size(context, instance)
-            extra_usage_info = {"image_name": image_meta['name']}
+            if image_meta:
+                extra_usage_info = {"image_name": image_meta['name']}
+            else:
+                extra_usage_info = {}
             self._start_building(context, instance)
             self._notify_about_instance_usage(
                     context, instance, "create.start",
@@ -694,7 +697,10 @@ class ComputeManager(manager.SchedulerDependentManager):
                image, but is accurate because it reflects the image's
                actual size.
         """
-        image_meta = _get_image_meta(context, instance['image_ref'])
+        if instance['image_ref']:
+            image_meta = _get_image_meta(context, instance['image_ref'])
+        else:  # Instance was started from volume - so no image ref
+            return {}
 
         try:
             size_bytes = image_meta['size']
