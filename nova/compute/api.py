@@ -290,8 +290,7 @@ class API(base.Base):
         self.network_api.validate_networks(context, requested_networks)
 
     @staticmethod
-    def _handle_kernel_and_ramdisk(context, kernel_id, ramdisk_id, image,
-                                   image_service):
+    def _handle_kernel_and_ramdisk(context, kernel_id, ramdisk_id, image):
         """Choose kernel and ramdisk appropriate for the instance.
 
         The kernel and ramdisk can be chosen in one of three ways:
@@ -303,11 +302,13 @@ class API(base.Base):
             3. Forced to None by using `null_kernel` FLAG.
         """
         # Inherit from image if not specified
+        image_properties = image.get('properties', {})
+
         if kernel_id is None:
-            kernel_id = image['properties'].get('kernel_id')
+            kernel_id = image_properties.get('kernel_id')
 
         if ramdisk_id is None:
-            ramdisk_id = image['properties'].get('ramdisk_id')
+            ramdisk_id = image_properties.get('ramdisk_id')
 
         # Force to None if using null_kernel
         if kernel_id == str(FLAGS.null_kernel):
@@ -316,9 +317,13 @@ class API(base.Base):
 
         # Verify kernel and ramdisk exist (fail-fast)
         if kernel_id is not None:
+            image_service, kernel_id = glance.get_remote_image_service(context,
+                                                                       kernel_id)
             image_service.show(context, kernel_id)
 
         if ramdisk_id is not None:
+            image_service, ramdisk_id = glance.get_remote_image_service(context,
+                                                                       ramdisk_id)
             image_service.show(context, ramdisk_id)
 
         return kernel_id, ramdisk_id
@@ -416,16 +421,16 @@ class API(base.Base):
                 image = image_service.show(context, image_id)
                 if image['status'] != 'active':
                     raise exception.ImageNotActive(image_id=image_id)
-
-                if instance_type['memory_mb'] < int(image.get('min_ram') or 0):
-                    raise exception.InstanceTypeMemoryTooSmall()
-                if instance_type['root_gb'] < int(image.get('min_disk') or 0):
-                    raise exception.InstanceTypeDiskTooSmall()
-
-                kernel_id, ramdisk_id = self._handle_kernel_and_ramdisk(
-                        context, kernel_id, ramdisk_id, image, image_service)
             else:
                 image = {}
+
+            if instance_type['memory_mb'] < int(image.get('min_ram') or 0):
+                raise exception.InstanceTypeMemoryTooSmall()
+            if instance_type['root_gb'] < int(image.get('min_disk') or 0):
+                raise exception.InstanceTypeDiskTooSmall()
+
+            kernel_id, ramdisk_id = self._handle_kernel_and_ramdisk(
+                    context, kernel_id, ramdisk_id, image)
 
             # Handle config_drive
             config_drive_id = None
@@ -1504,7 +1509,7 @@ class API(base.Base):
                                                                  image_href)
         image = image_service.show(context, image_id)
         kernel_id, ramdisk_id = self._handle_kernel_and_ramdisk(
-                context, None, None, image, image_service)
+                context, None, None, image)
 
         def _reset_image_metadata():
             """

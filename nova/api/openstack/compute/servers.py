@@ -1118,7 +1118,7 @@ class Controller(wsgi.Controller):
         bdm = data['server'].get('block_device_mapping')
 
         if not image_ref and bdm and self.ext_mgr.is_loaded('os-volumes'):
-            return None
+            return ''
         else:
             image_href = self._image_ref_from_req_data(data)
             image_uuid = self._image_uuid_from_href(image_href)
