@@ -3817,6 +3817,11 @@ class ServersViewBuilderTest(test.TestCase):
         output = self.view_builder.show(self.request, self.instance)
         self.assertDictMatch(output, expected_server)
 
+    def test_build_server_no_image(self):
+        self.instance["image_ref"] = ""
+        output = self.view_builder.show(self.request, self.instance)
+        self.assertEqual(output['server']['image'], "")
+        
     def test_build_server_detail_with_fault(self):
         self.instance['vm_state'] = vm_states.ERROR
         self.instance['fault'] = {
