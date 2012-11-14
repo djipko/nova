@@ -317,13 +317,13 @@ class API(base.Base):
 
         # Verify kernel and ramdisk exist (fail-fast)
         if kernel_id is not None:
-            image_service, kernel_id = glance.get_remote_image_service(context,
-                                                                       kernel_id)
+            image_service, kernel_id = glance.get_remote_image_service(
+                context, kernel_id)
             image_service.show(context, kernel_id)
 
         if ramdisk_id is not None:
-            image_service, ramdisk_id = glance.get_remote_image_service(context,
-                                                                       ramdisk_id)
+            image_service, ramdisk_id = glance.get_remote_image_service(
+                context, ramdisk_id)
             image_service.show(context, ramdisk_id)
 
         return kernel_id, ramdisk_id

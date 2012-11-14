@@ -504,7 +504,7 @@ class ComputeTestCase(BaseTestCase):
 
     def test_create_instance_no_image(self):
         """Create instance with no image provided"""
-        params = {'image_ref' : ''}
+        params = {'image_ref': ''}
         instance = self._create_fake_instance(params)
         self.compute.run_instance(self.context, instance=instance)
         self._assert_state({'vm_state': vm_states.ACTIVE,
@@ -676,7 +676,7 @@ class ComputeTestCase(BaseTestCase):
         Make sure instance started without image (from volume)
         can be termintad without issues
         """
-        params = {'image_ref' : ''}
+        params = {'image_ref': ''}
         instance = self._create_fake_instance(params)
         self.compute.run_instance(self.context, instance=instance)
         self._assert_state({'vm_state': vm_states.ACTIVE,
@@ -780,7 +780,7 @@ class ComputeTestCase(BaseTestCase):
         self.compute.terminate_instance(self.context, instance=instance)
 
     def test_stop_start_no_image(self):
-        params = {'image_ref' : ''}
+        params = {'image_ref': ''}
         instance = self._create_fake_instance(params)
         self.compute.run_instance(self.context, instance=instance)
         db.instance_update(self.context, instance['uuid'],
@@ -825,7 +825,7 @@ class ComputeTestCase(BaseTestCase):
         self.compute.terminate_instance(self.context, instance=instance)
 
     def test_rescue_no_image(self):
-        params = {'image_ref' : ''}
+        params = {'image_ref': ''}
         instance = self._create_fake_instance(params)
         instance_uuid = instance['uuid']
         self.compute.run_instance(self.context, instance=instance)
@@ -933,7 +933,7 @@ class ComputeTestCase(BaseTestCase):
 
     def test_rebuild_no_image(self):
         """Ensure instance can be rebuilt when started with no image"""
-        params = {'image_ref' : ''}
+        params = {'image_ref': ''}
         instance = self._create_fake_instance(params)
         sys_metadata = db.instance_system_metadata_get(self.context,
                         instance['uuid'])
@@ -1232,7 +1232,7 @@ class ComputeTestCase(BaseTestCase):
         self.compute.terminate_instance(self.context, instance=instance)
 
     def test_snapshot_no_image(self):
-        params = {'image_ref' : ''}
+        params = {'image_ref': ''}
         name = "myfakesnapshot"
         instance = self._create_fake_instance(params)
         self.compute.run_instance(self.context, instance=instance)
@@ -2925,7 +2925,8 @@ class ComputeAPITestCase(BaseTestCase):
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
 
         self.assertRaises(exception.InstanceTypeMemoryTooSmall,
-            self.compute_api.create, self.context, inst_type, self.fake_image['id'])
+            self.compute_api.create, self.context,
+            inst_type, self.fake_image['id'])
 
         # Now increase the inst_type memory and make sure all is fine.
         inst_type['memory_mb'] = 2
@@ -2946,7 +2947,8 @@ class ComputeAPITestCase(BaseTestCase):
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
 
         self.assertRaises(exception.InstanceTypeDiskTooSmall,
-            self.compute_api.create, self.context, inst_type, self.fake_image['id'])
+            self.compute_api.create, self.context,
+            inst_type, self.fake_image['id'])
 
         # Now increase the inst_type disk space and make sure all is fine.
         inst_type['root_gb'] = 2
