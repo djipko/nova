@@ -117,12 +117,16 @@ class BaseTestCase(test.TestCase):
         test_notifier.NOTIFICATIONS = []
 
         def fake_show(meh, context, id):
-            return {'id': id, 'min_disk': None, 'min_ram': None,
-                    'name': 'fake_name',
-                    'status': 'active',
-                    'properties': {'kernel_id': 'fake_kernel_id',
-                                   'ramdisk_id': 'fake_ramdisk_id',
-                                   'something_else': 'meow'}}
+            if id:
+                return {'id': id, 'min_disk': None, 'min_ram': None,
+                        'name': 'fake_name',
+                        'status': 'active',
+                        'properties': {'kernel_id': 'fake_kernel_id',
+                                       'ramdisk_id': 'fake_ramdisk_id',
+                                       'something_else': 'meow'}}
+            else:
+                raise exception.ImageNotFound(image_id=id)
+
 
         fake_image.stub_out_image_service(self.stubs)
         self.stubs.Set(fake_image._FakeImageService, 'show', fake_show)
