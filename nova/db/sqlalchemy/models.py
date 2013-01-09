@@ -510,14 +510,16 @@ class BlockDeviceMapping(BASE, NovaBase):
                                               'False)')
     device_name = Column(String(255), nullable=False)
 
+    user_label = Column(String(255))
+    is_root = Column(Boolean, nullable=False, default=False)
+
     # default=False for compatibility of the existing code.
     # With EC2 API,
     # default True for ami specified device.
     # default False for created with other timing.
     delete_on_termination = Column(Boolean, default=False)
 
-    # for ephemeral device
-    virtual_name = Column(String(255), nullable=True)
+    device_type = Column(String(255))
 
     snapshot_id = Column(String(36))
 
