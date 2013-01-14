@@ -105,6 +105,11 @@ def make_server(elem, detailed=False):
 server_nsmap = {None: xmlutil.XMLNS_V11, 'atom': xmlutil.XMLNS_ATOM}
 
 
+_bdm_attributes = set(["user_label", "device_type", "volume_id",
+                      "snapshot_id", "volume_size", "is_root",
+                      "no_device", "delete_on_termination"])
+
+
 class ServerTemplate(xmlutil.TemplateBuilder):
     def construct(self):
         root = xmlutil.TemplateElement('server', selector='server')
@@ -238,18 +243,15 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
                 if child.nodeName != "mapping":
                     continue
                 mapping = {}
-                attributes = ["volume_id", "snapshot_id", "device_name",
-                              "virtual_name", "volume_size"]
+                attributes = _bdm_attributes
+
                 for attr in attributes:
                     value = child.getAttribute(attr)
                     if value:
                         mapping[attr] = value
-                attributes = ["delete_on_termination", "no_device"]
-                for attr in attributes:
-                    value = child.getAttribute(attr)
-                    if value:
-                        mapping[attr] = utils.bool_from_str(value)
+
                 block_device_mapping.append(mapping)
+
             return block_device_mapping
         else:
             return None
@@ -578,13 +580,6 @@ class Controller(wsgi.Controller):
     def _validate_server_name(self, value):
         self._check_string_length(value, 'Server name', max_length=255)
 
-    def _validate_device_name(self, value):
-        self._check_string_length(value, 'Device name', max_length=255)
-
-        if ' ' in value:
-            msg = _("Device name cannot include spaces.")
-            raise exc.HTTPBadRequest(explanation=msg)
-
     def _get_injected_files(self, personality):
         """Create a list of injected files from the personality attribute.
 
@@ -725,6 +720,51 @@ class Controller(wsgi.Controller):
             expl = _('accessIPv6 is not proper IPv6 format')
             raise exc.HTTPBadRequest(explanation=expl)
 
+    def _get_bdms(self, bdms):
+        attributes = _bdm_attributes
+        needed_keys = set(('user_label', 'is_root', 'device_type'))
+
+        validated_bdms = []
+        invalid_keys = set()
+        missing_keys = set()
+
+        for bdm in bdms:
+
+            keys = set(bdm.iterkeys())
+
+            if not needed_keys <= keys:
+                missing_keys.update(needed_keys - keys)
+                continue
+
+            # make sure we have the expected fields
+            if not keys <= attributes:
+                invalid_keys.update(keys - attributes)
+                continue
+
+            # Make sure boolean flags are treated as such
+            bdm.update(
+                dict((key, utils.bool_from_str(bdm[key]))
+                     for key in
+                     ["delete_on_termination", "no_device", "is_root"]
+                     if key in bdm
+                )
+            )
+            validated_bdms.append(bdm)
+
+        if missing_keys:
+            expl = (_("Some block_device_mappings were missing some "
+                     "of the following mandatory fields: %(missing_fields)s")
+                     % {"missing_fields": ", ".join(missing_keys)})
+            raise exc.HTTPBadRequest(explanation=expl)
+
+        if invalid_keys:
+            expl = (_("The following invalid fields were found in the "
+                     "block_device_mapping: %(invalid_fields)s")
+                     % {"invalid_fields": ", ".join(invalid_keys)})
+            raise exc.HTTPBadRequest(explanation=expl)
+
+        return validated_bdms
+
     @wsgi.serializers(xml=ServerTemplate)
     def show(self, req, id):
         """Returns server details by server id."""
@@ -818,12 +858,9 @@ class Controller(wsgi.Controller):
 
         block_device_mapping = None
         if self.ext_mgr.is_loaded('os-volumes'):
-            block_device_mapping = server_dict.get('block_device_mapping', [])
-            for bdm in block_device_mapping:
-                self._validate_device_name(bdm["device_name"])
-                if 'delete_on_termination' in bdm:
-                    bdm['delete_on_termination'] = utils.bool_from_str(
-                        bdm['delete_on_termination'])
+            block_device_mapping = self._get_bdms(
+                server_dict.get('block_device_mapping', [])
+            )
 
         ret_resv_id = False
         # min_count and max_count are optional.  If they exist, they may come
@@ -905,6 +942,8 @@ class Controller(wsgi.Controller):
             raise exc.HTTPBadRequest(explanation=unicode(error))
         except exception.InvalidMetadataSize as error:
             raise exc.HTTPRequestEntityTooLarge(explanation=unicode(error))
+        except exception.InvalidBlockDeviceMapping as error:
+            raise exc.HTTPBadRequest(explanation=unicode(error))
         except exception.ImageNotFound as error:
             msg = _("Can not find requested image")
             raise exc.HTTPBadRequest(explanation=msg)

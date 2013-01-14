@@ -839,6 +839,10 @@ class InstanceTypeExtraSpecsNotFound(NotFound):
                 "key %(extra_specs_key)s.")
 
 
+class InvalidBlockDeviceMapping(NovaException):
+    message = _("Invalid block_device_mappings passed: %(details)s")
+
+
 class FileNotFound(NotFound):
     message = _("File %(file_path)s could not be found.")
 
