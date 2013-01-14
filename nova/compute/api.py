@@ -22,6 +22,7 @@
 networking and storage of VMs, and compute hosts on which they run)."""
 
 import base64
+from collections import defaultdicit
 import functools
 import re
 import string
@@ -645,9 +646,6 @@ class API(base.Base):
             LOG.debug(_("bdm %s"), bdm, instance_uuid=instance_uuid)
 
             virtual_name = bdm['virtual']
-            if virtual_name == 'ami' or virtual_name == 'root':
-                continue
-
             if not block_device.is_swap_or_ephemeral(virtual_name):
                 continue
 
@@ -657,8 +655,12 @@ class API(base.Base):
 
             values = {
                 'instance_uuid': instance_uuid,
-                'device_name': bdm['device'],
-                'virtual_name': virtual_name,
+                'device_name': None,
+                'device_type':
+                    'ephemeral'
+                    if block_device.is_ephemeral(virtual_name)
+                    else 'swap',
+                'user_label': virtual_name,
                 'volume_size': size}
             self.db.block_device_mapping_update_or_create(elevated_context,
                                                           values)
@@ -672,17 +674,19 @@ class API(base.Base):
         LOG.debug(_("block_device_mapping %s"), block_device_mapping,
                   instance_uuid=instance_uuid)
         for bdm in block_device_mapping:
-            assert 'device_name' in bdm
+            assert 'device_name' not in bdm
 
-            values = {'instance_uuid': instance_uuid}
-            for key in ('device_name', 'delete_on_termination', 'virtual_name',
-                        'snapshot_id', 'volume_id', 'volume_size',
-                        'no_device'):
-                values[key] = bdm.get(key)
+            values = {
+                'instance_uuid': instance_uuid,
+                'device_name': None,  # The driver will assign this
+            }
 
-            virtual_name = bdm.get('virtual_name')
-            if (virtual_name is not None and
-                block_device.is_swap_or_ephemeral(virtual_name)):
+            # Assume fields are validated in the API layer - just copy them
+            values.update(bdm)
+
+            device_type = bdm.get('device_type')
+            if (device_type is not None and
+                block_device.is_swap_or_ephemeral(device_type)):
                 size = self._volume_size(instance_type, virtual_name)
                 if size == 0:
                     continue
@@ -691,14 +695,82 @@ class API(base.Base):
             # NOTE(yamahata): NoDevice eliminates devices defined in image
             #                 files by command line option.
             #                 (--block-device-mapping)
-            if virtual_name == 'NoDevice':
+            if device_type == 'NoDevice':
                 values['no_device'] = True
-                for k in ('delete_on_termination', 'virtual_name',
-                          'snapshot_id', 'volume_id', 'volume_size'):
-                    values[k] = None
+                for k in values.iterkeys():
+                    if k not in ("instance_uuid", "no_device"):
+                        values[k] = None
 
             self.db.block_device_mapping_update_or_create(elevated_context,
                                                           values)
+
+    def _validate_block_device_mapping(self, instance, image_bdm, passed_bdm):
+        valid_device_types = ('volume', 'snapshot', 'NoDevice',
+                              'ephemeral', 'swap')
+        invalid_types = set(
+            bdm['device_type'] for bdm in passed_bdm
+            if bdm['device_type'] not in valid_device_types
+        )
+
+        # Make sure only known types were passed
+        if invalid_types:
+            details = (_("Some block devices have the following invalid "
+                        "device_types: %s .") % ", ".join(invalid_types))
+            raise exceptions.InvalidBlockDeviceMapping(details=details)
+
+        # Make sure that volume and snapshot types have the id's set
+        def _valid_type_with_id(bdm):
+            types_w_id = ('volume', 'snapshot')
+            if bdm['device_type'] in types_w_id:
+                return bdm.get(bdm['device_type'] + '_id')
+            return True
+
+        missing_ids = defaultdicit(list)
+
+        for dbm in passed_bdm:
+            if not _valid_type_with_id(bdm):
+                missing_ids[bdm['device_type']].append(bdm['user_label'])
+
+        if missing_ids:
+            ids_list = "; ".join("%s: %s" % (bdm_type, ", ".join(labels))
+                            for bdm_type, labels in missing_ids)
+            details = (_("Following bdms have missing resource IDs - %s")
+                       % ids_list)
+            raise exceptions.InvalidBlockDeviceMapping(details=details)
+
+        # Make sure there is a boot device (either an image or a snap/volume)
+        root_in_passed = len(bdm for bdm in passed_bdm if bdm['is_root'])
+        root_in_image = len(bdm for bdm in image_bdm if bdm['is_root'])
+
+        # Make sure there is only one root device in passed bdms
+        if root_in_passed > 1:
+            details = _("More than one root block device passed to "
+                        "instance create.")
+            raise exceptions.InvalidBlockDeviceMapping(details=details)
+
+        # NOTE (ndipanov):  Do not allow root block device in image_bdm
+        #                   for now althought we might want to change
+        #                   that later.
+        if root_in_image:
+            details = (_("Root device not allowed in image supplied "
+                        "block device mapping. Please check image %s.")
+                        % instance['image_href'])
+
+        if root_in_passed:
+            if instance['image_href']:
+                # NOTE (ndipanov):  Maybe we just want to log this instad?
+                #                   as we might want to have images as a way
+                #                   to supply metadata.
+                details = ("Passed a root device and an image to boot! "
+                          "Only one of those should be chosen.")
+                raise exceptions.InvalidBlockDeviceMapping(details=details)
+        else:
+            # No root device - we need an image then:
+            if not instance['image_href']:
+                details = _("No root block device and no image supplied to "
+                          "instance create. At least one of those is needed.")
+
+                raise exceptions.InvalidBlockDeviceMapping(details=details)
 
     def _populate_instance_for_bdm(self, context, instance, instance_type,
             image, block_device_mapping):
@@ -714,6 +786,10 @@ class API(base.Base):
                     instance_type, instance_uuid, mappings)
 
         image_bdm = image_properties.get('block_device_mapping', [])
+
+        # Validate block_device_mapping - this might raise exceptions
+        self._validate_block_device_mapping(instance, image_bdm,
+                                            block_device_mapping)
         for mapping in (image_bdm, block_device_mapping):
             if not mapping:
                 continue

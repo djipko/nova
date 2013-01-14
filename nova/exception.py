@@ -838,6 +838,8 @@ class InstanceTypeExtraSpecsNotFound(NotFound):
     message = _("Instance Type %(instance_type_id)s has no extra specs with "
                 "key %(extra_specs_key)s.")
 
+class InvalidBlockDeviceMapping(NovaException):
+    message = _("Invalid block_device_mappings passed: %(details)s")
 
 class InvalidBlockDeviceMapping(NovaException):
     message = _("Invalid block_device_mappings passed: %(details)s")
