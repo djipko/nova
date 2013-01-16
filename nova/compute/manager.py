@@ -596,23 +596,22 @@ class ComputeManager(manager.SchedulerDependentManager):
 
             if bdm['no_device']:
                 continue
-            if bdm['virtual_name']:
-                virtual_name = bdm['virtual_name']
-                device_name = bdm['device_name']
-                assert block_device.is_swap_or_ephemeral(virtual_name)
-                if virtual_name == 'swap':
-                    swap = {'device_name': device_name,
+            device_type = bdm['device_type']
+            if block_device.is_swap_or_ephemeral(device_type):
+                virtual_name = bdm['user_label']
+                if device_type == 'swap':
+                    swap = {'device_name': None,
                             'swap_size': bdm['volume_size']}
-                elif block_device.is_ephemeral(virtual_name):
-                    eph = {'num': block_device.ephemeral_num(virtual_name),
-                           'virtual_name': virtual_name,
-                           'device_name': device_name,
+                elif block_device.is_ephemeral(device_name):
+                    eph = {'num': block_device.ephemeral_num(bdm['user_label']),
+                           # Leave this for now to minimize driver changes
+                           'virtual_name': user_label,
+                           'device_name': None,
                            'size': bdm['volume_size']}
                     ephemerals.append(eph)
                 continue
 
-            if ((bdm['snapshot_id'] is not None) and
-                (bdm['volume_id'] is None)):
+            if device_type == 'snapshot' and not bdm['volume_id']:
                 # TODO(yamahata): default name and description
                 snapshot = self.volume_api.get_snapshot(context,
                                                         bdm['snapshot_id'])
@@ -630,7 +629,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                     context, bdm['id'], {'volume_id': vol['id']})
                 bdm['volume_id'] = vol['id']
 
-            if bdm['volume_id'] is not None:
+            if device_type == 'volume':
                 volume = self.volume_api.get(context, bdm['volume_id'])
                 self.volume_api.check_attach(context, volume)
                 cinfo = self._attach_volume_boot(context,
