@@ -291,6 +291,18 @@ class ComputeDriver(object):
     def detach_volume(self, connection_info, instance, mountpoint):
         """Detach the disk attached to the instance."""
         raise NotImplementedError()
+    
+    def assign_device_mappings(self, instance, block_device_info):
+        """
+        Generate device mappings according to the internals of the
+        hypervisor. Not all hypervisors honor user-assigned device
+        mappings. This method allows the driver to expose it's
+        /dev assignment policy to the upper layers.
+        
+        Instance is needed here as it caries info about root devices
+        that the driver may use to 
+        """
+        pass
 
     def migrate_disk_and_power_off(self, context, instance, dest,
                                    instance_type, network_info,

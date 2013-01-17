@@ -588,9 +588,24 @@ class ComputeManager(manager.SchedulerDependentManager):
 
     def _setup_block_device_mapping(self, context, instance, bdms):
         """setup volumes for block device mapping."""
+
+        # NOTE (ndipanov): dict fields for the driver format of BD mappings
+        driver_swap_fields = ('device_name', 'swap_size')
+        driver_eph_fields = ('num', 'virtual_name', 'device_name', 'size')
+        driver_bd_fields = ('connection_info', 'mount_device',
+                            'delete_on_termination')
+
+        # TODO (ndipanov): document and possibly rename helper functions
+        def _only_fields(d, fields):
+            return dict((k, v) for k, v in d.iteritems() if k in fields)
+
+        def _transform_fields(d, trans):
+            return dict((k, trans[l](v) if k in trans else v) for k, v in d.iteritems())
+
         block_device_mapping = []
         swap = None
         ephemerals = []
+
         for bdm in bdms:
             LOG.debug(_('Setting up bdm %s'), bdm, instance=instance)
 
@@ -600,14 +615,14 @@ class ComputeManager(manager.SchedulerDependentManager):
             if block_device.is_swap_or_ephemeral(device_type):
                 virtual_name = bdm['user_label']
                 if device_type == 'swap':
-                    swap = {'device_name': None,
-                            'swap_size': bdm['volume_size']}
+                    swap = bdm.update({'device_name': None,
+                            'swap_size': bdm['volume_size']})
                 elif block_device.is_ephemeral(device_name):
-                    eph = {'num': block_device.ephemeral_num(bdm['user_label']),
+                    eph = bdm.update({'num': block_device.ephemeral_num(bdm['user_label']),
                            # Leave this for now to minimize driver changes
                            'virtual_name': user_label,
                            'device_name': None,
-                           'size': bdm['volume_size']}
+                           'size': bdm['volume_size']})
                     ephemerals.append(eph)
                 continue
 
@@ -625,30 +640,51 @@ class ComputeManager(manager.SchedulerDependentManager):
                     if volume['status'] != 'creating':
                         break
                     greenthread.sleep(1)
-                self.conductor_api.block_device_mapping_update(
-                    context, bdm['id'], {'volume_id': vol['id']})
                 bdm['volume_id'] = vol['id']
 
-            if device_type == 'volume':
+            if bdm['volume_id']: #  Attach both snapshots and volumes
+                assert device_type in ('snapshot', 'volume')
                 volume = self.volume_api.get(context, bdm['volume_id'])
                 self.volume_api.check_attach(context, volume)
                 cinfo = self._attach_volume_boot(context,
                                                  instance,
                                                  volume,
                                                  bdm['device_name'])
-                self.conductor_api.block_device_mapping_update(
-                        context, bdm['id'],
-                        {'connection_info': jsonutils.dumps(cinfo)})
-                bdmap = {'connection_info': cinfo,
+                bdmap = bdm.update({'connection_info': cinfo,
                          'mount_device': bdm['device_name'],
-                         'delete_on_termination': bdm['delete_on_termination']}
+                         'delete_on_termination': bdm['delete_on_termination']})
                 block_device_mapping.append(bdmap)
 
-        return {
+        bd_info = {
             'root_device_name': instance['root_device_name'],
             'swap': swap,
             'ephemerals': ephemerals,
             'block_device_mapping': block_device_mapping
+        }
+
+        # Let the driver assign devices to bdms
+        assigned_bd_info = self.driver.assign_device_mappings(bd_info)
+        
+        # Update the database with the assigned bdms
+        for ephemeral in assigned_bd_info['ephemerals']:
+                self.conductor_api.block_device_mapping_update(
+                        context, ephemeral['id'], ephemeral)
+        self.conductor_api.block_device_mapping_update(context,
+                                                       swap['id'], swap)
+        for bd in assigned_bd_info['block_device_mapping']:
+                self.conductor_api.block_device_mapping_update(
+                        context, bd['id'],
+                        _transform_fields(bd, {'connection_info', jsonutils.dumps}))
+
+        return {
+            'root_device_name': assigned_bd_info['root_device_name'],
+            'swap': _only_fields(
+                assigned_bd_info['swap'],
+                driver_swap_fields),
+            'ephemerals': [_only_fields(eph, driver_eph_fields)
+                           for eph in assigned_bd_info['ephemerals']],
+            'block_device_mapping': [_only_fields(bd, driver_bd_fields)
+                           for bd in assigned_bd_info['block_device_mapping']]
         }
 
     def _run_instance(self, context, request_spec,

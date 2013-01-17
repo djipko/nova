@@ -44,6 +44,7 @@ import functools
 import glob
 import hashlib
 import os
+from operator import itemgetter
 import shutil
 import sys
 import tempfile
@@ -300,6 +301,10 @@ class LibvirtDriver(driver.ComputeDriver):
         self.default_second_device = self._disk_prefix + 'b'
         self.default_third_device = self._disk_prefix + 'c'
         self.default_last_device = self._disk_prefix + 'z'
+        
+        self.ordered_device_names = [self._disk_prefix + letter
+                                     for letter in string.ascii_lowarcase
+                                     if letter not in ('a', 'b', 'c', 'z')]
 
         self._disk_cachemode = None
         self.image_cache_manager = imagecache.ImageCacheManager()
@@ -1527,6 +1532,65 @@ class LibvirtDriver(driver.ComputeDriver):
 
         return cpu
 
+    def assign_device_mappings(self, instance, block_device_info):
+        assigned_ephemerals = assigned_mappings = []
+        
+        mapping = driver.block_device_info_get_mapping(
+            block_device_info)
+        
+        ephemerals = driver.block_device_info_get_ephemerals(
+            block_device_info)
+        
+        swap = driver.block_device_info_get_swap(
+            block_device_info_get_swap
+        )
+
+        root_device_name = driver.block_device_info_get_root(
+            block_device_info)
+
+        root_device = [dev for dev in mapping if bdm['is_root']]
+        non_root_mappings = [dev for dev in mapping if not bdm['is_root']]
+
+        assert len(root_device) <= 1
+
+        if root_device:
+            root_device = root_device[0]
+            root_device['device_name'] = self.default_root_device
+            assigned_mappings.append(root_device)
+
+        if ephemerals:
+            # Sort ephemerals by num
+            ephemerals.sort(key=itemgetter('num'))
+            ephemeral_zero = ephemerals[0]
+            assert ephemeral_zero['num'] == 0
+            ephemeral_zero['device_name'] = self.default_second_device
+            assigned_ephemerals.append(ephemeral_zero)
+
+        if swap:
+            # There is always only one swap
+            swap['device_name'] = self.default_third_device
+
+        # Now take care of what's left -
+        # first ephemerals, then volumes/snapshots
+        for dev_name, eph in zip(self._ordered_device_names,
+                                    ephemerals[1:]):
+            eph['device_name'] = dev_name
+            assigned_ephemerals.append(eph)
+
+        for dev_name, device in zip(
+            self._ordered_device_names[len(ephemerals)-1:],
+                                     non_root_mappings):
+            device['device_name'] = dev_name
+            assigned_mappings.append(dev)
+
+        return {
+            'root_device_name': root_device_name,
+            'swap': swap,
+            'ephemerals': assigned_ephemerals,
+            'block_device_mapping': assigned_mappings
+        }
+
+    
     def get_guest_storage_config(self, instance, image_meta,
                                  rescue, block_device_info,
                                  inst_type,
