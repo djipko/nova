@@ -2969,10 +2969,20 @@ def block_device_mapping_update(context, bdm_id, values):
 def block_device_mapping_update_or_create(context, values):
     session = get_session()
     with session.begin():
-        result = _block_device_mapping_get_query(context, session=session).\
+        device_name = values.get('device_name')
+        if device_name:
+            result = _block_device_mapping_get_query(context, session=session).\
                  filter_by(instance_uuid=values['instance_uuid']).\
                  filter_by(device_name=values['device_name']).\
                  first()
+        else:
+            # Try to get a result as unique as possible
+            result = _block_device_mapping_get_query(context, session=session).\
+                 filter_by(instance_uuid=values['instance_uuid']).\
+                 filter_by(device_name=values['device_type']).\
+                 filter_by(device_name=values['user_label']).\
+                 first()
+
         if not result:
             bdm_ref = models.BlockDeviceMapping()
             bdm_ref.update(values)
@@ -2980,17 +2990,21 @@ def block_device_mapping_update_or_create(context, values):
         else:
             result.update(values)
 
-        # NOTE(yamahata): same virtual device name can be specified multiple
-        #                 times. So delete the existing ones.
-        virtual_name = values['virtual_name']
-        if (virtual_name is not None and
-            block_device.is_swap_or_ephemeral(virtual_name)):
-            session.query(models.BlockDeviceMapping).\
-                filter_by(instance_uuid=values['instance_uuid']).\
-                filter_by(virtual_name=virtual_name).\
-                filter(models.BlockDeviceMapping.device_name !=
-                       values['device_name']).\
-                soft_delete()
+        if device_name:
+            # NOTE(yamahata): same virtual device name can be specified multiple
+            #                 times. So delete the existing ones.
+
+            # NOTE (ndipanov):  we might want to remove this in favor of validating
+            #                   in the API layer when booting/attaching
+
+            device_type = values['device_type']
+            if (block_device.is_swap_or_ephemeral(device_type)):
+                session.query(models.BlockDeviceMapping).\
+                    filter_by(instance_uuid=values['instance_uuid']).\
+                    filter_by(user_label=values['user_label']).\
+                    filter(models.BlockDeviceMapping.device_name !=
+                           values['device_name']).\
+                    soft_delete()
 
 
 @require_context
