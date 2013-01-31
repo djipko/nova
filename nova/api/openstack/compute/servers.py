@@ -15,6 +15,7 @@
 #    under the License.
 
 import base64
+from itertools import repeat
 import os
 import re
 
@@ -27,6 +28,7 @@ from nova.api.openstack.compute import ips
 from nova.api.openstack.compute.views import servers as views_servers
 from nova.api.openstack import wsgi
 from nova.api.openstack import xmlutil
+from nova import block_device
 from nova import compute
 from nova.compute import instance_types
 from nova import exception
@@ -101,6 +103,15 @@ def make_server(elem, detailed=False):
 
 
 server_nsmap = {None: xmlutil.XMLNS_V11, 'atom': xmlutil.XMLNS_ATOM}
+
+
+_bdm_v1_attrs = set(["volume_id", "snapshot_id", "device_name",
+                  "virtual_name", "volume_size"])
+
+
+_bdm_v2_attrs = set(['source_type', 'dest_type' 'uuid', 'guest_format',
+                     'disk_bus', 'device_type', 'boot_index', 'size',
+                     'delete_on_termination', 'device_name'])
 
 
 class ServerTemplate(xmlutil.TemplateBuilder):
@@ -217,6 +228,11 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
         if block_device_mapping is not None:
             server["block_device_mapping"] = block_device_mapping
 
+        block_device_mapping_v2 = self._extract_block_device_mapping_v2(server_node)
+        if block_device_mapping_v2 is not None:
+            server["block_device_mapping_v2"] = block_device_mapping_v2
+
+
         # NOTE(vish): Support this incorrect version because it was in the code
         #             base for a while and we don't want to accidentally break
         #             anyone that might be using it.
@@ -258,6 +274,22 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
             return block_device_mapping
         else:
             return None
+
+    def _extract_block_device_mapping_v2(self, server_node):
+        """Marshal v2 of block_device_mappings """
+        node = self.find_first_child_named(server_node, "block_device_mapping_v2")
+        if node:
+            block_device_mapping = []
+            for child in self.extract_elements(node):
+                if child.nodeName != "mapping":
+                    continue
+                mapping = {}
+                for attr in _bdm_v2_attrs:
+                    value = child.getAttribute(attr)
+                    if value:
+                        mapping[attr] = value
+                block_device_mapping.append(mapping)
+            return block_device_mapping
 
     def _extract_scheduler_hints(self, server_node):
         """Marshal the scheduler hints attribute of a parsed request."""
@@ -719,6 +751,110 @@ class Controller(wsgi.Controller):
             expl = _('accessIPv6 is not proper IPv6 format')
             raise exc.HTTPBadRequest(explanation=expl)
 
+    def _transform_bdm_v2(bdms_v1, image_uuid):
+        """Transform the old bdms to the new v2 format.
+        Default some fields as necessary.
+        """
+        def _blank_bdm():
+            bdm = dict(zip(_bdm_v2_attrs, repeat(None)))
+            bdm['boot_index'] = -1
+
+        bdms_v2 = []
+        for bdm in bdms_v1:
+
+            bdm_v2 = _blank_bdm()
+
+            virt_name = bdm.get('virt_name')
+            if block_device.is_swap_or_ephemeral(virt_name):
+                bdm_v2['source_type'] = 'blank'
+                bdm_v2['size'] = bdm['volume_size']
+                bdm_v2['delete_on_termination'] = True
+
+                if virt_name == 'swap':
+                    bdm_v2['guest_format'] = 'swap'
+
+                bdms_v2.append(bdms_v2)
+
+            elif bdm.get('snapshot_id'):
+                bdm_v2['source_type'] = 'snapshot'
+                bdm_v2['uuid'] = bdm['snapshot_id']
+                bdm_v2['size'] = bdm['volume_size']
+                bdm_v2['device_name'] = bdm['device_name']
+                bdm_v2['delete_on_termination'] = bdm['delete_on_termination']
+
+                bdms_v2.append(bdms_v2)
+
+            elif bdm.get('volume_id'):
+                bdm_v2['source_type'] = 'volume'
+                bdm_v2['uuid'] = bdm['volume_id']
+                bdm_v2['size'] = bdm['volume_size']
+                bdm_v2['device_name'] = bdm['device_name']
+                bdm_v2['delete_on_termination'] = bdm['delete_on_termination']
+
+                bdms_v2.append(bdms_v2)
+            else: # Log a warning that the bdm is not as expected
+                LOG.warn(_("Got an unexpected block device "
+                           "that cannot be converted to v2 format"))
+
+        if image_uuid:
+            image_bdm = _blank_bdm()
+            image_bdm['source_type'] = 'image'
+            image_bdm['uuid'] = image_uuid
+            image_bdm['delete_on_termination'] = True
+            bdms_v2 = [image_bdm].extend(bdm_v2)
+
+        # Decide boot sequences:
+        non_boot = [bdm for bdm in bdms_v2 if bdm['source_type'] == 'blank']
+        bootable = [bdm for bdm in bdms_v2 if bdm not in non_boot]
+
+        for index, bdm in enumerate(bootable):
+            bdm['boot_index'] = index
+
+        return bootable + non_boot
+
+
+    def _get_bdms_v2(self, block_device_mapping):
+        """ Do only basic bdm validations."""
+
+        attributes = _bdm_v2_attrs
+        neede_keys = set(['source_type'])
+
+        validated_bdms = {}
+        invalid_bdms = []
+
+        for bdm in block_device_mapping:
+
+            keys = set(bdm.iterkeys())
+
+            if not needed_keys <= keys:
+                missing_keys.update(needed_keys - keys)
+                continue
+
+            # make sure we have the expected fields
+            if not keys <= attributes:
+                invalid_keys = keys - attributes
+                expl = (_("Invalid fields found in on of the "
+                        "block device definitions: %(invalid_fields)s")
+                        % {"invalid_fields": ", ".join(invalid_keys)})
+                raise exc.HTTPBadRequest(explanation=expl)
+
+            # Make sure boolean flags are treated as such
+            if 'delete_on_termination' in bdm:
+                dbm['delete_on_termination'] = utils.bool_from_str(
+                        bdm['delete_on_termination'])
+
+            # Make sure that the integer keys are valid
+            if boot_index in bdm:
+                try:
+                    bdm['boot_index'] = int(bdm['boot_index'])
+                except ValueError:
+                    expl = _("Invalid 'size' field found in device definitions")
+                    raise exc.HTTPBadRequest(explanation=expl)
+
+            validated_bdms.append(bdm)
+
+        return validated_bdms
+
     @wsgi.serializers(xml=ServerTemplate)
     def show(self, req, id):
         """Returns server details by server id."""
@@ -819,6 +955,27 @@ class Controller(wsgi.Controller):
                     bdm['delete_on_termination'] = utils.bool_from_str(
                         bdm['delete_on_termination'])
 
+        block_device_mapping_v2 = None
+        if self.ext_mgr.is_loaded('os-block_device_mapping_v2'):
+
+            block_device_mapping_v2 = server_dict.get(
+                'block_device_mapping_v2', [])
+            # NOTE (ndipanov):  Disabel usage of both v1 and v2
+            #                   to avoid possible
+            #                   confusion about the boot_device
+            if block_device_mapping and block_device_mapping_v2:
+                expl = _('Using different block_device_mapping syntaxes '
+                         'is not allowed in the same request')
+                raise exc.HTTPBadRequest(explanation=expl)
+
+            block_device_mapping_v2.append(
+                self._transform_bdm_v2(block_device_mapping, image_uuid))
+            validated_bdms = self._get_bdms_v2(block_device_mapping_v2)
+        else:
+            validated_bdms = self._get_bdms_v2(
+                self._transform_bdm_v2(block_device_mapping)
+                )
+
         ret_resv_id = False
         # min_count and max_count are optional.  If they exist, they may come
         # in as strings.  Verify that they are valid integers and > 0.
@@ -883,7 +1040,7 @@ class Controller(wsgi.Controller):
                             user_data=user_data,
                             availability_zone=availability_zone,
                             config_drive=config_drive,
-                            block_device_mapping=block_device_mapping,
+                            block_device_mapping=validated_bdms,
                             auto_disk_config=auto_disk_config,
                             scheduler_hints=scheduler_hints)
         except exception.QuotaError as error:

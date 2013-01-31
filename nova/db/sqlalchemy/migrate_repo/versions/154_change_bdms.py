@@ -14,8 +14,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from collections import namedtuple
-from itertools import repeat
 import re
 
 from sqlalchemy import Boolean, Column, Integer, MetaData, String, Table
@@ -55,7 +53,7 @@ def upgrade(migrate_engine):
     disk_bus = Column('disk_bus', String(255))
     boot_index = Column('boot_index', Integer)
     image_id = Column('image_id', String(36))
-    
+
     source_type.create(block_device_mapping)
     destination_type.create(block_device_mapping)
     guest_format.create(block_device_mapping)
@@ -63,12 +61,12 @@ def upgrade(migrate_engine):
     disk_bus.create(block_device_mapping)
     boot_index.create(block_device_mapping)
     image_id.create(block_device_mapping)
-    
+
     device_name = block_device_mapping.columns.device_name
     device_name.alter(nullable=True)
-    
+
     _upgrade_bdm_v2(meta, block_device_mapping)
-    
+
     virtual_name = block_device_mapping.columns.virtual_name
     virtual_name.drop()
 
@@ -80,12 +78,12 @@ def downgrade(migrate_engine):
 
     virtual_name = Column('virtual_name', String(255), nullable=True)
     virtual_name.create(block_device_mapping)
-    
+
     _downgrade_bdm_v2(meta, block_device_mapping)
-    
+
     device_name = block_device_mapping.columns.device_name
     device_name.alter(nullable=True)
-    
+
     block_device_mapping.columns.source_type.drop()
     block_device_mapping.columns.destination_type.drop()
     block_device_mapping.columns.guest_format.drop()
@@ -94,17 +92,18 @@ def downgrade(migrate_engine):
     block_device_mapping.columns.boot_index.drop()
     block_device_mapping.columns.image_id.drop()
 
+
 def _upgrade_bdm_v2(meta, bdm_table):
     # Rows needed to do the upgrade
     _bdm_rows_v1 = ('id', 'device_name', 'virtual_name',
                     'snapshot_id', 'volume_id', 'instance_uuid')
-    
+
     _bdm_rows_v2 = ('id', 'source_type', 'destination_type', 'guest_format',
                     'device_type', 'disk_bus', 'boot_index', 'image_id')
-    
+
     def _get_columns(table, names):
         return [getattr(table.c, name) for name in names]
-   
+
     def _default_bdm():
         # Set some common default values
         default = {}
@@ -112,9 +111,9 @@ def _upgrade_bdm_v2(meta, bdm_table):
         default['device_type'] = 'disk'
         default['boot_index'] = -1
         return default
-    
+
     instance_table = Table('instances', meta, autoload=True)
-    
+
     for instance in instance_table.select().execute():
         # Get all the bdms for an instance
         bdm_q = select(_get_columns(bdm_table, _bdm_rows_v1)).where(
@@ -123,7 +122,7 @@ def _upgrade_bdm_v2(meta, bdm_table):
         bdms_v1 = [ val for val in bdm_q.execute()]
         bdms_v2 = []
         image_bdm = None
-        
+
         for bdm in bdms_v1:
             bdm_v2 = _default_bdm()
             bdm_v2['id'] = bdm['id']
@@ -196,7 +195,7 @@ def _downgrade_bdm_v2(meta, bdm_table):
     #                   happen only if there are instances that are just
     #                   starting up when we do the downgrade
     bdm_table.update().where(
-        bdm_table.c.device_name is None
+        bdm_table.c.device_name == None
     ).values(device_name='').execute()
 
     instance = Table('instances', meta, autoload=True)

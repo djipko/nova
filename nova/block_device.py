@@ -61,7 +61,8 @@ def ephemeral_num(ephemeral_name):
 
 
 def is_swap_or_ephemeral(device_name):
-    return device_name == 'swap' or is_ephemeral(device_name)
+    return (device_name and
+            (device_name == 'swap' or is_ephemeral(device_name)))
 
 
 def mappings_prepend_dev(mappings):
