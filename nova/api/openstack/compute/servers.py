@@ -110,7 +110,7 @@ _bdm_v1_attrs = set(["volume_id", "snapshot_id", "device_name",
 
 
 _bdm_v2_attrs = set(['source_type', 'dest_type' 'uuid', 'guest_format',
-                     'disk_bus', 'device_type', 'boot_index', 'size',
+                     'disk_bus', 'device_type', 'boot_index', 'volume_size',
                      'delete_on_termination', 'device_name'])
 
 
@@ -756,8 +756,9 @@ class Controller(wsgi.Controller):
         Default some fields as necessary.
         """
         def _blank_bdm():
-            bdm = dict(zip(_bdm_v2_attrs, repeat(None)))
-            bdm['boot_index'] = -1
+            blank = dict(zip(_bdm_v2_attrs, repeat(None)))
+            blank['boot_index'] = -1
+            return blank
 
         bdms_v2 = []
         for bdm in bdms_v1:
@@ -767,7 +768,7 @@ class Controller(wsgi.Controller):
             virt_name = bdm.get('virt_name')
             if block_device.is_swap_or_ephemeral(virt_name):
                 bdm_v2['source_type'] = 'blank'
-                bdm_v2['size'] = bdm['volume_size']
+                bdm_v2['volume_size'] = bdm['volume_size']
                 bdm_v2['delete_on_termination'] = True
 
                 if virt_name == 'swap':
@@ -778,7 +779,7 @@ class Controller(wsgi.Controller):
             elif bdm.get('snapshot_id'):
                 bdm_v2['source_type'] = 'snapshot'
                 bdm_v2['uuid'] = bdm['snapshot_id']
-                bdm_v2['size'] = bdm['volume_size']
+                bdm_v2['volume_size'] = bdm['volume_size']
                 bdm_v2['device_name'] = bdm['device_name']
                 bdm_v2['delete_on_termination'] = bdm['delete_on_termination']
 
@@ -787,7 +788,7 @@ class Controller(wsgi.Controller):
             elif bdm.get('volume_id'):
                 bdm_v2['source_type'] = 'volume'
                 bdm_v2['uuid'] = bdm['volume_id']
-                bdm_v2['size'] = bdm['volume_size']
+                bdm_v2['volum_size'] = bdm['volume_size']
                 bdm_v2['device_name'] = bdm['device_name']
                 bdm_v2['delete_on_termination'] = bdm['delete_on_termination']
 

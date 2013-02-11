@@ -97,6 +97,7 @@ CONF = cfg.CONF
 CONF.register_opts(compute_opts)
 CONF.import_opt('compute_topic', 'nova.compute.rpcapi')
 CONF.import_opt('enable', 'nova.cells.opts', group='cells')
+CONF.import_opt('default_ephemeral_format', 'nova.virt.driver')
 
 MAX_USERDATA_SIZE = 65535
 QUOTAS = quota.QUOTAS
@@ -616,7 +617,6 @@ class API(base.Base):
 
                 instances.append(instance)
                 instance_uuids.append(instance['uuid'])
-                self._validate_bdm(context, instance)
                 # send a state update notification for the initial create to
                 # show it going from non-existent to BUILDING
                 notifications.send_update_with_states(context, instance, None,
@@ -722,6 +722,12 @@ class API(base.Base):
             if not block_device.is_swap_or_ephemeral(virtual_name):
                 continue
 
+            guest_format = bdm.get('guest_format')
+            if virtual_name == 'swap':
+                guest_format == 'swap'
+            if not guest_format:
+                guest_format = CONF.default_ephemeral_format
+
             size = self._volume_size(instance_type, virtual_name)
             if size == 0:
                 continue
@@ -729,7 +735,11 @@ class API(base.Base):
             values = {
                 'instance_uuid': instance_uuid,
                 'device_name': bdm['device'],
-                'virtual_name': virtual_name,
+                'source_type': 'blank',
+                'destination_type': 'local',
+                'device_type': 'disk',
+                'guest_format': guest_format,
+                'boot_index': -1,
                 'volume_size': size}
             self.db.block_device_mapping_update_or_create(elevated_context,
                                                           values)
@@ -771,10 +781,64 @@ class API(base.Base):
             self.db.block_device_mapping_update_or_create(elevated_context,
                                                           values)
 
-    def _validate_bdm(self, context, instance):
-        for bdm in self.db.block_device_mapping_get_all_by_instance(
-                context, instance['uuid']):
-            # NOTE(vish): For now, just make sure the volumes are accessible.
+    def _validate_bdm(self, context, instance, block_device_mapping):
+        valid_sources = set(['image', 'volume', 'snapshot', 'blank'])
+        valid_dests = set(['local', 'volume'])
+        
+        source_rules = {
+            'image': {
+                'has': ['image_id'],
+            },
+            'volume' : {
+                'has': ['volume_id'],
+                'match': {'destination_type': 'volume'}
+            },
+            'snapshot': {
+                'has': ['snapshot_id'],
+                'match': {'destination_type': 'volume'}
+            },
+            'blank' : {
+                'match': {'destination_type': 'local'}
+            }
+        }
+        
+        # TODO (ndipanov):  Might want to move this to a separate
+        #                   module and make it a bit more generic
+        def _bdm_rule_engine(bdm, field, rules_dict):
+            field_val = bdm.get(field)
+            if not field_val:
+                return
+            field_rules = rules_dict.get(field_val)
+
+            has_rules = field_rules.get('has', [])
+            if any(map(lambda h: h not in bdm, has_rules)):
+                raise exception.InvalidBDMMissingField(
+                    field=field, field_val=field_val,
+                    needed=", ".join(has_rules)
+                )
+
+            match_rules = field_rules.get('match', {})
+            if dict((k, v) for k, v in bdm.iteritems()
+                if k in match_rules) != match_rules:
+                raise exception.InvalidBDMField(
+                    field=field, field_val=field_val,
+                    match_rules=match_rules
+                )
+
+        def _subsequent_list(l):
+            return all(el + 1 == l[i+1] for i, el in enumerate(l[:-1]))
+
+        # Make sure that the boot indexes make sense
+        boot_indexes = sorted([bdm['boot_index'] for bdm in block_device_mapping
+                        if bdm.get('boot_index') and bdm.get('boot_index') >= 0])
+
+        if 0 not in boot_indexes and not _subsequent_list(boot_indexes):
+            raise exception.InvalidBDMBootSequence(seq=",".join(boot_indexes))
+
+        for bdm in block_device_mapping:
+            # Make sure the bdm obeys the rules
+            _bdm_rule_engine(bdm, 'source_type', source_rules)
+
             snapshot_id = bdm.get('snapshot_id')
             volume_id = bdm.get('volume_id')
             if volume_id is not None:
@@ -798,7 +862,11 @@ class API(base.Base):
             self._update_image_block_device_mapping(context,
                     instance_type, instance_uuid, mappings)
 
+        # TODO (ndipanov): move this to the server.py so we can convert
+        #                   these to the new layout
         image_bdm = image_properties.get('block_device_mapping', [])
+        
+        self._validate_bdm(context, instance, block_device_mapping)
         for mapping in (image_bdm, block_device_mapping):
             if not mapping:
                 continue

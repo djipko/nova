@@ -234,6 +234,23 @@ class InvalidBDMVolume(InvalidBDM):
                 "failed to get volume %(id)s.")
 
 
+class InvalidBDMBootSequence(InvalidBDM):
+    message = _("Block Device Mapping is Invalid: "
+                "the boot sequence %(seq)s is invalid.")
+
+
+class InvalidBDMField(InvalidBDM):
+    message = _("Block Device Mapping is Invalid: "
+                "when %(field)s is set to %(field_val)s "
+                "following fields need to match %(match_rules).")
+
+
+class InvalidBDMMissingField(InvalidBDM):
+    message = _("Block Device Mapping is Invalid: "
+                "%(field)s set to %(field_val) "
+                "missing some of the needed fields: %(needed)s.")
+
+
 class VolumeUnattached(Invalid):
     message = _("Volume %(volume_id)s is not attached to anything")
 
