@@ -90,6 +90,11 @@ compute_opts = [
                     'behavior of every instance having the same name, set '
                     'this option to "%(name)s".  Valid keys for the '
                     'template are: name, uuid, count.'),
+    cfg.IntOpt('max_local_block_devices',
+                default=2,
+                help='Maximum number of devices that will result '
+                     'in a local image being created on the hypervisor node, '
+                     'excluding the image used to start the instance'),
 ]
 
 
@@ -97,6 +102,7 @@ CONF = cfg.CONF
 CONF.register_opts(compute_opts)
 CONF.import_opt('compute_topic', 'nova.compute.rpcapi')
 CONF.import_opt('enable', 'nova.cells.opts', group='cells')
+CONF.import_opt('default_ephemeral_format', 'nova.virt.driver')
 CONF.import_opt('default_ephemeral_format', 'nova.virt.driver')
 
 MAX_USERDATA_SIZE = 65535
@@ -687,24 +693,18 @@ class API(base.Base):
         return (instances, reservation_id)
 
     @staticmethod
-    def _volume_size(instance_type, virtual_name):
+    def _blank_device_size(instance_type, bdm):
+        """ Default the size of the blank devices to
+        values provided by instance type. """
         size = 0
-        if virtual_name == 'swap':
-            size = instance_type.get('swap', 0)
-        elif block_device.is_ephemeral(virtual_name):
-            num = block_device.ephemeral_num(virtual_name)
-
-            # TODO(yamahata): ephemeralN where N > 0
-            # Only ephemeral0 is allowed for now because InstanceTypes
-            # table only allows single local disk, ephemeral_gb.
-            # In order to enhance it, we need to add a new columns to
-            # instance_types table.
-            if num > 0:
-                return 0
-
-            size = instance_type.get('ephemeral_gb')
-
-        return size
+        if bdm.get('source_type') == 'blank':
+            if bdm.get('dest_format') == 'swap':
+                size = instance_type.get('swap', 0)
+            else:
+                size = instance_type.get('ephemeral_gb')
+            return size
+        else:
+            return bdm.get('volume_size')
 
     def _update_image_block_device_mapping(self, elevated_context,
                                            instance_type, instance_uuid,
@@ -728,9 +728,6 @@ class API(base.Base):
             if not guest_format:
                 guest_format = CONF.default_ephemeral_format
 
-            size = self._volume_size(instance_type, virtual_name)
-            if size == 0:
-                continue
 
             values = {
                 'instance_uuid': instance_uuid,
@@ -739,8 +736,13 @@ class API(base.Base):
                 'destination_type': 'local',
                 'device_type': 'disk',
                 'guest_format': guest_format,
-                'boot_index': -1,
-                'volume_size': size}
+                'boot_index': -1}
+
+            values['volume_size'] = self._blank_device_size(
+                instance_type, values)
+            if size == 0:
+                continue
+
             self.db.block_device_mapping_update_or_create(elevated_context,
                                                           values)
 
@@ -753,38 +755,16 @@ class API(base.Base):
         LOG.debug(_("block_device_mapping %s"), block_device_mapping,
                   instance_uuid=instance_uuid)
         for bdm in block_device_mapping:
-            assert 'device_name' in bdm
+            bdm.update({'instance_uuid': instance_uuid})
 
-            values = {'instance_uuid': instance_uuid}
-            for key in ('device_name', 'delete_on_termination', 'virtual_name',
-                        'snapshot_id', 'volume_id', 'volume_size',
-                        'no_device'):
-                values[key] = bdm.get(key)
-
-            virtual_name = bdm.get('virtual_name')
-            if (virtual_name is not None and
-                block_device.is_swap_or_ephemeral(virtual_name)):
-                size = self._volume_size(instance_type, virtual_name)
-                if size == 0:
-                    continue
-                values['volume_size'] = size
-
-            # NOTE(yamahata): NoDevice eliminates devices defined in image
-            #                 files by command line option.
-            #                 (--block-device-mapping)
-            if virtual_name == 'NoDevice':
-                values['no_device'] = True
-                for k in ('delete_on_termination', 'virtual_name',
-                          'snapshot_id', 'volume_id', 'volume_size'):
-                    values[k] = None
+            # Skip the 0 size BDMs
+            if bdm.get('volume_size') == 0:
+                continue
 
             self.db.block_device_mapping_update_or_create(elevated_context,
                                                           values)
 
     def _validate_bdm(self, context, instance, block_device_mapping):
-        valid_sources = set(['image', 'volume', 'snapshot', 'blank'])
-        valid_dests = set(['local', 'volume'])
-        
         source_rules = {
             'image': {
                 'has': ['image_id'],
@@ -801,7 +781,7 @@ class API(base.Base):
                 'match': {'destination_type': 'local'}
             }
         }
-        
+
         # TODO (ndipanov):  Might want to move this to a separate
         #                   module and make it a bit more generic
         def _bdm_rule_engine(bdm, field, rules_dict):
@@ -852,6 +832,22 @@ class API(base.Base):
                 except Exception:
                     raise exception.InvalidBDMSnapshot(id=snapshot_id)
 
+            # Default the size of blank devices per instance type
+            dest_type = bdm.get('destination_type')
+            if dest_type == 'blank':
+                bdm['volume_size'] = self._blank_device_size(
+                    instance_type, bdm)
+
+        # Make sure we are not going to break the locals limit
+        max_local = CONF.max_local_block_devices
+        if instance.get('image_href'):
+            max_locals += 1
+        num_local = len([bdm for bdm in block_device_mapping
+                         if bdm.get('destination_type') == 'local'])
+        if num_local > max_local:
+            raise exception.InvalidBDMLocalsLimit()
+
+
     def _populate_instance_for_bdm(self, context, instance, instance_type,
             image, block_device_mapping):
         """Populate instance block device mapping information."""
@@ -865,8 +861,11 @@ class API(base.Base):
         # TODO (ndipanov): move this to the server.py so we can convert
         #                   these to the new layout
         image_bdm = image_properties.get('block_device_mapping', [])
-        
-        self._validate_bdm(context, instance, block_device_mapping)
+
+        # Validate block_device mappings - might raise exceptions
+        self._validate_bdm(context, instance,
+                           block_device_mapping+image_bdm)
+
         for mapping in (image_bdm, block_device_mapping):
             if not mapping:
                 continue

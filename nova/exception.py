@@ -251,6 +251,12 @@ class InvalidBDMMissingField(InvalidBDM):
                 "missing some of the needed fields: %(needed)s.")
 
 
+class InvalidBDMLocalsLimit(InvalidBDM):
+    message = _("Block Device Mapping is Invalid: "
+                "Specified more local bdms than the limit "
+                "set for local block devices.")
+
+
 class VolumeUnattached(Invalid):
     message = _("Volume %(volume_id)s is not attached to anything")
 
