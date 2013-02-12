@@ -651,7 +651,7 @@ class Volumes(extensions.ExtensionDescriptor):
                                            inherits='servers')
         resources.append(res)
 
-        res = extension.ResourceExtension('os-block_device_mapping_v2',
+        res = extensions.ResourceExtension('os-block_device_mapping_v2',
                                           inherits='servers')
 
         res = extensions.ResourceExtension('os-snapshots',

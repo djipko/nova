@@ -247,7 +247,7 @@ class InvalidBDMField(InvalidBDM):
 
 class InvalidBDMMissingField(InvalidBDM):
     message = _("Block Device Mapping is Invalid: "
-                "%(field)s set to %(field_val) "
+                "%(field)s set to %(field_val)s "
                 "missing some of the needed fields: %(needed)s.")
 
 

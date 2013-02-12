@@ -109,7 +109,7 @@ _bdm_v1_attrs = set(["volume_id", "snapshot_id", "device_name",
                   "virtual_name", "volume_size"])
 
 
-_bdm_v2_attrs = set(['source_type', 'dest_type' 'uuid', 'guest_format',
+_bdm_v2_attrs = set(['source_type', 'dest_type', 'uuid', 'guest_format',
                      'disk_bus', 'device_type', 'boot_index', 'volume_size',
                      'delete_on_termination', 'device_name'])
 
@@ -751,7 +751,7 @@ class Controller(wsgi.Controller):
             expl = _('accessIPv6 is not proper IPv6 format')
             raise exc.HTTPBadRequest(explanation=expl)
 
-    def _transform_bdm_v2(bdms_v1, image_uuid):
+    def _transform_bdm_v2(self, bdms_v1, image_uuid):
         """Transform the old bdms to the new v2 format.
         Default some fields as necessary.
         """
@@ -774,7 +774,7 @@ class Controller(wsgi.Controller):
                 if virt_name == 'swap':
                     bdm_v2['guest_format'] = 'swap'
 
-                bdms_v2.append(bdms_v2)
+                bdms_v2.append(bdm_v2)
 
             elif bdm.get('snapshot_id'):
                 bdm_v2['source_type'] = 'snapshot'
@@ -783,7 +783,7 @@ class Controller(wsgi.Controller):
                 bdm_v2['device_name'] = bdm['device_name']
                 bdm_v2['delete_on_termination'] = bdm['delete_on_termination']
 
-                bdms_v2.append(bdms_v2)
+                bdms_v2.append(bdm_v2)
 
             elif bdm.get('volume_id'):
                 bdm_v2['source_type'] = 'volume'
@@ -792,7 +792,7 @@ class Controller(wsgi.Controller):
                 bdm_v2['device_name'] = bdm['device_name']
                 bdm_v2['delete_on_termination'] = bdm['delete_on_termination']
 
-                bdms_v2.append(bdms_v2)
+                bdms_v2.append(bdm_v2)
             else: # Log a warning that the bdm is not as expected
                 LOG.warn(_("Got an unexpected block device "
                            "that cannot be converted to v2 format"))
@@ -802,7 +802,7 @@ class Controller(wsgi.Controller):
             image_bdm['source_type'] = 'image'
             image_bdm['uuid'] = image_uuid
             image_bdm['delete_on_termination'] = True
-            bdms_v2 = [image_bdm].extend(bdm_v2)
+            bdms_v2 = [image_bdm] + bdms_v2
 
         # Decide boot sequences:
         non_boot = [bdm for bdm in bdms_v2 if bdm['source_type'] == 'blank']
@@ -818,10 +818,9 @@ class Controller(wsgi.Controller):
         """ Do only basic bdm validations."""
 
         attributes = _bdm_v2_attrs
-        neede_keys = set(['source_type'])
+        needed_keys = set(['source_type'])
 
-        validated_bdms = {}
-        invalid_bdms = []
+        validated_bdms = []
 
         for bdm in block_device_mapping:
 
@@ -834,18 +833,18 @@ class Controller(wsgi.Controller):
             # make sure we have the expected fields
             if not keys <= attributes:
                 invalid_keys = keys - attributes
-                expl = (_("Invalid fields found in on of the "
+                expl = (_("Invalid fields found in one of the "
                         "block device definitions: %(invalid_fields)s")
                         % {"invalid_fields": ", ".join(invalid_keys)})
                 raise exc.HTTPBadRequest(explanation=expl)
 
             # Make sure boolean flags are treated as such
             if 'delete_on_termination' in bdm:
-                dbm['delete_on_termination'] = utils.bool_from_str(
+                bdm['delete_on_termination'] = utils.bool_from_str(
                         bdm['delete_on_termination'])
 
             # Make sure that the integer keys are valid
-            if boot_index in bdm:
+            if 'boot_index' in bdm:
                 try:
                     bdm['boot_index'] = int(bdm['boot_index'])
                 except ValueError:
@@ -947,7 +946,7 @@ class Controller(wsgi.Controller):
         if self.ext_mgr.is_loaded('os-availability-zone'):
             availability_zone = server_dict.get('availability_zone')
 
-        block_device_mapping = None
+        block_device_mapping = []
         if self.ext_mgr.is_loaded('os-volumes'):
             block_device_mapping = server_dict.get('block_device_mapping', [])
             for bdm in block_device_mapping:
@@ -956,12 +955,12 @@ class Controller(wsgi.Controller):
                     bdm['delete_on_termination'] = utils.bool_from_str(
                         bdm['delete_on_termination'])
 
-        block_device_mapping_v2 = None
+        block_device_mapping_v2 = []
         if self.ext_mgr.is_loaded('os-block_device_mapping_v2'):
 
             block_device_mapping_v2 = server_dict.get(
                 'block_device_mapping_v2', [])
-            # NOTE (ndipanov):  Disabel usage of both v1 and v2
+            # NOTE (ndipanov):  Disable usage of both v1 and v2
             #                   to avoid possible
             #                   confusion about the boot_device
             if block_device_mapping and block_device_mapping_v2:
@@ -969,13 +968,12 @@ class Controller(wsgi.Controller):
                          'is not allowed in the same request')
                 raise exc.HTTPBadRequest(explanation=expl)
 
-            block_device_mapping_v2.append(
+            block_device_mapping_v2.extend(
                 self._transform_bdm_v2(block_device_mapping, image_uuid))
             validated_bdms = self._get_bdms_v2(block_device_mapping_v2)
         else:
             validated_bdms = self._get_bdms_v2(
-                self._transform_bdm_v2(block_device_mapping)
-                )
+                self._transform_bdm_v2(block_device_mapping, image_uuid))
 
         ret_resv_id = False
         # min_count and max_count are optional.  If they exist, they may come

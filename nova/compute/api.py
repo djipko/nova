@@ -706,14 +706,14 @@ class API(base.Base):
         else:
             return bdm.get('volume_size')
 
-    def _update_image_block_device_mapping(self, elevated_context,
+    def _prepare_image_block_device_mapping(self, elevated_context,
                                            instance_type, instance_uuid,
                                            mappings):
-        """tell vm driver to create ephemeral/swap device at boot time by
-        updating BlockDeviceMapping
-        """
+        """ Prepare block device mappings found in the image """
+        preped_bdm = []
+
         for bdm in block_device.mappings_prepend_dev(mappings):
-            LOG.debug(_("bdm %s"), bdm, instance_uuid=instance_uuid)
+            LOG.debug(_("Image bdm %s"), bdm, instance_uuid=instance_uuid)
 
             virtual_name = bdm['virtual']
             if virtual_name == 'ami' or virtual_name == 'root':
@@ -740,11 +740,30 @@ class API(base.Base):
 
             values['volume_size'] = self._blank_device_size(
                 instance_type, values)
-            if size == 0:
+            if values['volume_size'] == 0:
                 continue
 
-            self.db.block_device_mapping_update_or_create(elevated_context,
-                                                          values)
+            preped_bdm.append(values)
+
+        return preped_bdm
+
+    def _prepare_block_device_mapping(self, block_device_mapping):
+        for bdm in block_device_mapping:
+
+            source_type = bdm.get('source_type')
+            uuid = bdm.get('uuid')
+
+            if source_type not in ('volume', 'snapshot', 'image'):
+                continue
+
+            if source_type == 'volume':
+                bdm['volume_id'] = uuid
+            elif source_type == 'snapshot':
+                bdm['snapshot_id'] = uuid
+            elif source_type == 'image':
+                bdm['image_id'] = uuid
+
+            del bdm['uuid']
 
     def _update_block_device_mapping(self, elevated_context,
                                      instance_type, instance_uuid,
@@ -762,7 +781,7 @@ class API(base.Base):
                 continue
 
             self.db.block_device_mapping_update_or_create(elevated_context,
-                                                          values)
+                                                          bdm)
 
     def _validate_bdm(self, context, instance, block_device_mapping):
         source_rules = {
@@ -819,6 +838,7 @@ class API(base.Base):
             # Make sure the bdm obeys the rules
             _bdm_rule_engine(bdm, 'source_type', source_rules)
 
+            # TODO (ndipanov):  Check that the image is accessible too
             snapshot_id = bdm.get('snapshot_id')
             volume_id = bdm.get('volume_id')
             if volume_id is not None:
@@ -847,26 +867,27 @@ class API(base.Base):
         if num_local > max_local:
             raise exception.InvalidBDMLocalsLimit()
 
-
     def _populate_instance_for_bdm(self, context, instance, instance_type,
             image, block_device_mapping):
         """Populate instance block device mapping information."""
         instance_uuid = instance['uuid']
         image_properties = image.get('properties', {})
-        mappings = image_properties.get('mappings', [])
-        if mappings:
-            self._update_image_block_device_mapping(context,
-                    instance_type, instance_uuid, mappings)
+        image_mappings = image_properties.get('mappings', [])
+        if image_mappings:
+            image_mappings = self._prepare_image_block_device_mapping(
+                elevated, instance_type, instance_uuid, image_mappings)
 
         # TODO (ndipanov): move this to the server.py so we can convert
         #                   these to the new layout
         image_bdm = image_properties.get('block_device_mapping', [])
 
+        self._prepare_block_device_mapping(block_device_mapping)
+
         # Validate block_device mappings - might raise exceptions
         self._validate_bdm(context, instance,
-                           block_device_mapping+image_bdm)
+                block_device_mapping+image_mappings+image_bdm)
 
-        for mapping in (image_bdm, block_device_mapping):
+        for mapping in (image_mappings, image_bdm, block_device_mapping):
             if not mapping:
                 continue
             self._update_block_device_mapping(context,
