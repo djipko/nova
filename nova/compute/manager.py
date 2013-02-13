@@ -673,16 +673,14 @@ class ComputeManager(manager.SchedulerDependentManager):
 
             if bdm['no_device']:
                 continue
-            if bdm['virtual_name']:
-                virtual_name = bdm['virtual_name']
+            if bdm['source_type'] == 'blank':
+                guest_format = bdm['guest_format']
                 device_name = bdm['device_name']
-                assert block_device.is_swap_or_ephemeral(virtual_name)
-                if virtual_name == 'swap':
+                if guest_format == 'swap':
                     swap = {'device_name': device_name,
                             'swap_size': bdm['volume_size']}
-                elif block_device.is_ephemeral(virtual_name):
-                    eph = {'num': block_device.ephemeral_num(virtual_name),
-                           'virtual_name': virtual_name,
+                else: # Ephemeral 
+                    eph = {'virtual_name': virtual_name,
                            'device_name': device_name,
                            'size': bdm['volume_size']}
                     ephemerals.append(eph)
@@ -722,6 +720,9 @@ class ComputeManager(manager.SchedulerDependentManager):
                          'mount_device': bdm['device_name'],
                          'delete_on_termination': bdm['delete_on_termination']}
                 block_device_mapping.append(bdmap)
+
+        for num, eph in enumerate(ephemerals):
+            eph['num'] = num
 
         block_device_info = {
             'root_device_name': instance['root_device_name'],

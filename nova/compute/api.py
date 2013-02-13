@@ -1687,7 +1687,9 @@ class API(base.Base):
             if bdm['no_device']:
                 continue
 
-            volume_id = bdm.get('volume_id')
+            m = dict(bdm.iteritems())
+
+            volume_id = m.get('volume_id')
             if volume_id:
                 # create snapshot based on volume_id
                 volume = self.volume_api.get(context, volume_id)

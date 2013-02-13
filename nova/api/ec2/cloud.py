@@ -1059,7 +1059,6 @@ class CloudController(object):
 
             if (bdm['device_name'] == root_device_name and
                 (bdm['snapshot_id'] or bdm['volume_id'])):
-                assert not bdm['virtual_name']
                 root_device_type = 'ebs'
 
             vol = self.volume_api.get(context, volume_id)
