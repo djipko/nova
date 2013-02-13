@@ -2869,18 +2869,6 @@ def block_device_mapping_update_or_create(context, values):
         else:
             result.update(values)
 
-        # NOTE(yamahata): same virtual device name can be specified multiple
-        #                 times. So delete the existing ones.
-        virtual_name = values['virtual_name']
-        if (virtual_name is not None and
-            block_device.is_swap_or_ephemeral(virtual_name)):
-            session.query(models.BlockDeviceMapping).\
-                filter_by(instance_uuid=values['instance_uuid']).\
-                filter_by(virtual_name=virtual_name).\
-                filter(models.BlockDeviceMapping.device_name !=
-                       values['device_name']).\
-                soft_delete()
-
 
 @require_context
 def block_device_mapping_get_all_by_instance(context, instance_uuid):
