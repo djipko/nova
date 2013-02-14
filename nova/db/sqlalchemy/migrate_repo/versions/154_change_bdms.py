@@ -117,9 +117,9 @@ def _upgrade_bdm_v2(meta, bdm_table):
     for instance in instance_table.select().execute():
         # Get all the bdms for an instance
         bdm_q = select(_get_columns(bdm_table, _bdm_rows_v1)).where(
-            bdm_table.c.instance_uuid==instance.uuid)
+            bdm_table.c.instance_uuid == instance.uuid)
 
-        bdms_v1 = [ val for val in bdm_q.execute()]
+        bdms_v1 = [val for val in bdm_q.execute()]
         bdms_v2 = []
         image_bdm = None
 
@@ -149,9 +149,9 @@ def _upgrade_bdm_v2(meta, bdm_table):
                 bdm_v2['destination_type'] = 'volume'
 
                 bdms_v2.append(bdm_v2)
-            else: # Log a warning that the bdm is not as expected
+            else:  # Log a warning that the bdm is not as expected
                 LOG.warn("Got an unexpected block device %s"
-                        "that cannot be converted to v2 format" % bdm)
+                         "that cannot be converted to v2 format" % bdm)
 
         if instance.image_ref:
             image_bdm = _default_bdm()
@@ -166,7 +166,8 @@ def _upgrade_bdm_v2(meta, bdm_table):
         if image_bdm:
             image_bdm['boot_index'] = 0
         elif bdms_v2:
-            bootable = [bdm for bdm in bdms_v2 if bdm['source_type'] != 'blank']
+            bootable = [bdm for bdm in bdms_v2 if bdm[
+                'source_type'] != 'blank']
             if bootable:
                 bootable[0]['boot_index'] = 0
 
@@ -182,13 +183,13 @@ def _upgrade_bdm_v2(meta, bdm_table):
 
 def _downgrade_bdm_v2(meta, bdm_table):
     # First delete all the image bdms
-    
+
     # NOTE (ndipanov): This will delete all the image bdms, even the ones
     #                   that were potentially created as part of th normal
     #                   operation, not only the upgrade. We have to do it,
     #                   as we have no way of handling them in the old code.
     bdm_table.delete().where(bdm_table.c.source_type == 'image').execute()
-    
+
     # NOTE (ndipanov):  Set all NULL device_names (if any) to '' and let the
     #                   Nova code deal with that. This is needed so that the
     #                   return of nullable=True does not break, and should
@@ -200,7 +201,7 @@ def _downgrade_bdm_v2(meta, bdm_table):
 
     instance = Table('instances', meta, autoload=True)
     instance_q = select([instance.c.uuid])
-    
+
     for instance_uuid, in instance_q.execute():
         # Get all the bdms for an instance
         bdm_q = select(
@@ -229,6 +230,3 @@ def _downgrade_bdm_v2(meta, bdm_table):
             bdm_table.update().where(
                 bdm_table.c.id == bdm['id']
             ).values(**bdm).execute()
-
-    
-    

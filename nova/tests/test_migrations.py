@@ -1064,17 +1064,17 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
         engine.execute(instances.insert(), fake_instances)
         for fake_bdm in fake_bdms:
             engine.execute(block_device.insert(), fake_bdm)
-        
+
         return fake_instances, fake_bdms
     
     def _check_161(self, engine, data):
         block_device = get_table(engine, 'block_device_mapping')
 
-        instance_qs  = []
+        instance_qs = []
 
         for instance in ('mig154_uuid-1', 'mig154_uuid-2', 'mig154_uuid-3'):
             q = block_device.select().where(
-                block_device.c.instance_uuid==instance).order_by(
+                block_device.c.instance_uuid == instance).order_by(
                 block_device.c.id.asc()
             )
             instance_qs.append(q)
@@ -1127,7 +1127,7 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
         self.assertEqual(bdm_3s[0].device_type, 'disk')
         self.assertEqual(bdm_3s[0].boot_index, -1)
         self.assertEqual(bdm_3s[0].device_name, '/dev/vdc')
-        
+
         self.assertEqual(bdm_3s[1].source_type, 'blank')
         self.assertEqual(bdm_3s[1].destination_type, 'local')
         self.assertEqual(bdm_3s[1].device_type, 'disk')
@@ -1140,7 +1140,7 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
         self.assertEqual(bdm_3s[2].device_type, 'disk')
         self.assertEqual(bdm_3s[2].boot_index, -1)
         self.assertEqual(bdm_3s[2].device_name, '/dev/vdb')
-        
+
         self.assertEqual(bdm_3s[3].source_type, 'image')
         self.assertEqual(bdm_3s[3].destination_type, 'local')
         self.assertEqual(bdm_3s[3].device_type, 'disk')

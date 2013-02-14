@@ -694,7 +694,7 @@ class API(base.Base):
 
     @staticmethod
     def _blank_device_size(instance_type, bdm):
-        """ Default the size of the blank devices to
+        """Default the size of the blank devices to
         values provided by instance type. """
         size = 0
         if bdm.get('source_type') == 'blank':
@@ -709,7 +709,7 @@ class API(base.Base):
     def _prepare_image_block_device_mapping(self, elevated_context,
                                            instance_type, instance_uuid,
                                            mappings):
-        """ Prepare block device mappings found in the image """
+        """Prepare block device mappings found in the image."""
         preped_bdm = []
 
         for bdm in block_device.mappings_prepend_dev(mappings):
@@ -727,7 +727,6 @@ class API(base.Base):
                 guest_format == 'swap'
             if not guest_format:
                 guest_format = CONF.default_ephemeral_format
-
 
             values = {
                 'instance_uuid': instance_uuid,
@@ -788,7 +787,7 @@ class API(base.Base):
             'image': {
                 'has': ['image_id'],
             },
-            'volume' : {
+            'volume': {
                 'has': ['volume_id'],
                 'match': {'destination_type': 'volume'}
             },
@@ -796,12 +795,12 @@ class API(base.Base):
                 'has': ['snapshot_id'],
                 'match': {'destination_type': 'volume'}
             },
-            'blank' : {
+            'blank': {
                 'match': {'destination_type': 'local'}
             }
         }
 
-        # TODO (ndipanov):  Might want to move this to a separate
+        # TODO(ndipanov):  Might want to move this to a separate
         #                   module and make it a bit more generic
         def _bdm_rule_engine(bdm, field, rules_dict):
             field_val = bdm.get(field)
@@ -825,11 +824,13 @@ class API(base.Base):
                 )
 
         def _subsequent_list(l):
-            return all(el + 1 == l[i+1] for i, el in enumerate(l[:-1]))
+            return all(el + 1 == l[i + 1] for i, el in enumerate(l[:-1]))
 
         # Make sure that the boot indexes make sense
-        boot_indexes = sorted([bdm['boot_index'] for bdm in block_device_mapping
-                        if bdm.get('boot_index') and bdm.get('boot_index') >= 0])
+        boot_indexes = sorted([bdm['boot_index']
+                               for bdm in block_device_mapping
+                               if bdm.get('boot_index')
+                               and bdm.get('boot_index') >= 0])
 
         if 0 not in boot_indexes and not _subsequent_list(boot_indexes):
             raise exception.InvalidBDMBootSequence(seq=",".join(boot_indexes))
@@ -838,7 +839,7 @@ class API(base.Base):
             # Make sure the bdm obeys the rules
             _bdm_rule_engine(bdm, 'source_type', source_rules)
 
-            # TODO (ndipanov):  Check that the image is accessible too
+            # TODO(ndipanov):  Check that the image is accessible too
             snapshot_id = bdm.get('snapshot_id')
             volume_id = bdm.get('volume_id')
             if volume_id is not None:
@@ -877,7 +878,7 @@ class API(base.Base):
             image_mappings = self._prepare_image_block_device_mapping(
                 elevated, instance_type, instance_uuid, image_mappings)
 
-        # TODO (ndipanov): move this to the server.py so we can convert
+        # TODO(ndipanov): move this to the server.py so we can convert
         #                   these to the new layout
         image_bdm = image_properties.get('block_device_mapping', [])
 
@@ -885,7 +886,7 @@ class API(base.Base):
 
         # Validate block_device mappings - might raise exceptions
         self._validate_bdm(context, instance,
-                block_device_mapping+image_mappings+image_bdm)
+                block_device_mapping + image_mappings + image_bdm)
 
         for mapping in (image_mappings, image_bdm, block_device_mapping):
             if not mapping:

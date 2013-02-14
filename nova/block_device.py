@@ -70,7 +70,7 @@ def mappings_prepend_dev(mappings):
     for m in mappings:
         virtual = m['virtual']
         if (is_swap_or_ephemeral(virtual) and
-            (not m['device'].startswith('/'))):
+                (not m['device'].startswith('/'))):
             m['device'] = '/dev/' + m['device']
     return mappings
 
@@ -113,7 +113,7 @@ def instance_block_mapping(instance, bdms):
 
     ebs_devices = []
     blanks = []
-    
+
     # 'ephemeralN', 'swap' and ebs
     for bdm in bdms:
         if bdm['no_device']:

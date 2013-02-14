@@ -15,7 +15,7 @@
 #    under the License.
 
 import base64
-from itertools import repeat
+import itertools
 import os
 import re
 
@@ -228,10 +228,10 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
         if block_device_mapping is not None:
             server["block_device_mapping"] = block_device_mapping
 
-        block_device_mapping_v2 = self._extract_block_device_mapping_v2(server_node)
+        block_device_mapping_v2 = self._extract_block_device_mapping_v2(
+            server_node)
         if block_device_mapping_v2 is not None:
             server["block_device_mapping_v2"] = block_device_mapping_v2
-
 
         # NOTE(vish): Support this incorrect version because it was in the code
         #             base for a while and we don't want to accidentally break
@@ -276,8 +276,9 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
             return None
 
     def _extract_block_device_mapping_v2(self, server_node):
-        """Marshal v2 of block_device_mappings """
-        node = self.find_first_child_named(server_node, "block_device_mapping_v2")
+        """Marshal v2 of block_device_mappings."""
+        node = self.find_first_child_named(server_node,
+                                           "block_device_mapping_v2")
         if node:
             block_device_mapping = []
             for child in self.extract_elements(node):
@@ -685,9 +686,9 @@ class Controller(wsgi.Controller):
                                 "(%s)") % network_uuid
                         raise exc.HTTPBadRequest(explanation=msg)
 
-                #fixed IP address is optional
-                #if the fixed IP address is not provided then
-                #it will use one of the available IP address from the network
+                # fixed IP address is optional
+                # if the fixed IP address is not provided then
+                # it will use one of the available IP address from the network
                 address = network.get('fixed_ip', None)
                 if address is not None and not utils.is_valid_ipv4(address):
                     msg = _("Invalid fixed IP address (%s)") % address
@@ -756,7 +757,7 @@ class Controller(wsgi.Controller):
         Default some fields as necessary.
         """
         def _blank_bdm():
-            blank = dict(zip(_bdm_v2_attrs, repeat(None)))
+            blank = dict(zip(_bdm_v2_attrs, itertools.repeat(None)))
             blank['boot_index'] = -1
             return blank
 
@@ -793,7 +794,7 @@ class Controller(wsgi.Controller):
                 bdm_v2['delete_on_termination'] = bdm['delete_on_termination']
 
                 bdms_v2.append(bdm_v2)
-            else: # Log a warning that the bdm is not as expected
+            else:  # Log a warning that the bdm is not as expected
                 LOG.warn(_("Got an unexpected block device "
                            "that cannot be converted to v2 format"))
 
@@ -813,9 +814,8 @@ class Controller(wsgi.Controller):
 
         return bootable + non_boot
 
-
     def _get_bdms_v2(self, block_device_mapping):
-        """ Do only basic bdm validations."""
+        """Do only basic bdm validations."""
 
         attributes = _bdm_v2_attrs
         needed_keys = set(['source_type'])
@@ -848,7 +848,8 @@ class Controller(wsgi.Controller):
                 try:
                     bdm['boot_index'] = int(bdm['boot_index'])
                 except ValueError:
-                    expl = _("Invalid 'size' field found in device definitions")
+                    expl = _(
+                        "Invalid 'size' field found in device definitions")
                     raise exc.HTTPBadRequest(explanation=expl)
 
             validated_bdms.append(bdm)
