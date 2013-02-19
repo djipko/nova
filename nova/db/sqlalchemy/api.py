@@ -44,7 +44,6 @@ from sqlalchemy.sql.expression import select
 from sqlalchemy.sql import func
 from sqlalchemy import String
 
-from nova import block_device
 from nova.compute import task_states
 from nova.compute import vm_states
 import nova.context

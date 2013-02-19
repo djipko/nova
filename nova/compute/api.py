@@ -701,7 +701,7 @@ class API(base.Base):
             if bdm.get('dest_format') == 'swap':
                 size = instance_type.get('swap', 0)
             else:
-                size = instance_type.get('ephemeral_gb')
+                size = instance_type.get('ephemeral_gb', 0)
             return size
         else:
             return bdm.get('volume_size')
@@ -724,12 +724,11 @@ class API(base.Base):
 
             guest_format = bdm.get('guest_format')
             if virtual_name == 'swap':
-                guest_format == 'swap'
+                guest_format = 'swap'
             if not guest_format:
                 guest_format = CONF.default_ephemeral_format
 
             values = {
-                'instance_uuid': instance_uuid,
                 'device_name': bdm['device'],
                 'source_type': 'blank',
                 'destination_type': 'local',
@@ -796,7 +795,8 @@ class API(base.Base):
                 'match': {'destination_type': 'volume'}
             },
             'blank': {
-                'match': {'destination_type': 'local'}
+                'match': {'destination_type': 'local',
+                          'boot_index': -1}
             }
         }
 
@@ -829,11 +829,11 @@ class API(base.Base):
         # Make sure that the boot indexes make sense
         boot_indexes = sorted([bdm['boot_index']
                                for bdm in block_device_mapping
-                               if bdm.get('boot_index')
+                               if bdm.get('boot_index') is not None
                                and bdm.get('boot_index') >= 0])
 
-        if 0 not in boot_indexes and not _subsequent_list(boot_indexes):
-            raise exception.InvalidBDMBootSequence(seq=",".join(boot_indexes))
+        if 0 not in boot_indexes or not _subsequent_list(boot_indexes):
+            raise exception.InvalidBDMBootSequence(seq=boot_indexes)
 
         for bdm in block_device_mapping:
             # Make sure the bdm obeys the rules
@@ -878,11 +878,10 @@ class API(base.Base):
             image_mappings = self._prepare_image_block_device_mapping(
                 elevated, instance_type, instance_uuid, image_mappings)
 
-        # TODO(ndipanov): move this to the server.py so we can convert
-        #                   these to the new layout
-        image_bdm = image_properties.get('block_device_mapping', [])
-
         self._prepare_block_device_mapping(block_device_mapping)
+
+        image_bdm = image_properties.get('block_device_mapping', [])
+        self._prepare_block_device_mapping(image_bdm)
 
         # Validate block_device mappings - might raise exceptions
         self._validate_bdm(context, instance,

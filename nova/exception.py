@@ -242,7 +242,7 @@ class InvalidBDMBootSequence(InvalidBDM):
 class InvalidBDMField(InvalidBDM):
     message = _("Block Device Mapping is Invalid: "
                 "when %(field)s is set to %(field_val)s "
-                "following fields need to match %(match_rules).")
+                "following fields need to match %(match_rules)s.")
 
 
 class InvalidBDMMissingField(InvalidBDM):

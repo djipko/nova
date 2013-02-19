@@ -39,7 +39,6 @@ import uuid
 from eventlet import greenthread
 from oslo.config import cfg
 
-from nova import block_device
 from nova.cloudpipe import pipelib
 from nova import compute
 from nova.compute import instance_types

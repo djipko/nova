@@ -184,6 +184,19 @@ class BaseTestCase(test.TestCase):
                 sys_meta['instance_type_%s' % key] = inst_type[key]
             return sys_meta
 
+        def _create_image_bdm(image_ref):
+            """Create a block device mapping for the image"""
+            image_bdm = {}
+            image_bdm['source_type'] = 'image'
+            image_bdm['dest_type'] = 'local'
+            image_bdm['uuid'] = image_ref
+            image_bdm['disk_bus'] = None
+            image_bdm['device_type'] = 'disk'
+            image_bdm['boot_index'] = 0
+            image_bdm['volume_size'] = 1
+            image_bdm['delete_on_termination'] = True
+            image_bdm['device_name'] = None
+
         inst = {}
         inst['vm_state'] = vm_states.ACTIVE
         inst['image_ref'] = FAKE_IMAGE_REF
@@ -204,6 +217,8 @@ class BaseTestCase(test.TestCase):
         inst['os_type'] = 'Linux'
         inst['system_metadata'] = make_fake_sys_meta()
         inst.update(params)
+        if inst['image_ref']:
+            inst['block_device_mapping'] = [_create_image_bdm(inst['image_ref'])]
         _create_service_entries(self.context.elevated(),
                 {'fake_zone': [inst['host']]})
         return db.instance_create(self.context, inst)
@@ -5736,67 +5751,221 @@ class ComputeAPITestCase(BaseTestCase):
 
     @staticmethod
     def _parse_db_block_device_mapping(bdm_ref):
-        attr_list = ('delete_on_termination', 'device_name', 'no_device',
-                     'virtual_name', 'volume_id', 'volume_size', 'snapshot_id')
         bdm = {}
-        for attr in attr_list:
-            val = bdm_ref.get(attr, None)
-            if val:
-                bdm[attr] = val
+        for k, v in bdm.iteritems():
+            bdm['attr'] = bdm_ref.get(attr)
 
         return bdm
 
-    def test_update_block_device_mapping(self):
+    def test_prepare_image_block_device_mapping(self):
         swap_size = 1
-        instance_type = {'swap': swap_size}
+        ephemeral_size = 1
+        instance_type = {'swap': swap_size,
+                         'ephemeral_gb': ephemeral_size}
         instance = self._create_fake_instance()
         mappings = [
                 {'virtual': 'ami', 'device': 'sda1'},
                 {'virtual': 'root', 'device': '/dev/sda1'},
 
                 {'virtual': 'swap', 'device': 'sdb4'},
-                {'virtual': 'swap', 'device': 'sdb3'},
-                {'virtual': 'swap', 'device': 'sdb2'},
-                {'virtual': 'swap', 'device': 'sdb1'},
 
                 {'virtual': 'ephemeral0', 'device': 'sdc1'},
                 {'virtual': 'ephemeral1', 'device': 'sdc2'},
-                {'virtual': 'ephemeral2', 'device': 'sdc3'}]
+        ]
+
+        preped_bdm = self.compute_api._prepare_image_block_device_mapping(
+            self.context, instance_type, instance['uuid'], mappings)
+
+        expected_result = [
+            {
+                'device_name': '/dev/sdb4',
+                'source_type': 'blank',
+                'destination_type': 'local',
+                'device_type': 'disk',
+                'guest_format': 'swap',
+                'boot_index': -1,
+                'volume_size': swap_size
+            },
+            {
+                'device_name': '/dev/sdc1',
+                'source_type': 'blank',
+                'destination_type': 'local',
+                'device_type': 'disk',
+                'guest_format': CONF.default_ephemeral_format,
+                'boot_index': -1,
+                'volume_size': ephemeral_size
+            },
+            {
+                'device_name': '/dev/sdc2',
+                'source_type': 'blank',
+                'destination_type': 'local',
+                'device_type': 'disk',
+                'guest_format': CONF.default_ephemeral_format,
+                'boot_index': -1,
+                'volume_size': ephemeral_size
+            }
+        ]
+
+        preped_bdm.sort()
+        expected_result.sort()
+        self.assertThat(preped_bdm, matchers.DictListMatches(expected_result))
+
+    def test_prepare_block_device_mapping(self):
+        mappings = [
+            {'device_name': '/dev/sdb1',
+             'source_type': 'blank'},
+            {'device_name': '/dev/sda1',
+             'source_type': 'volume',
+             'uuid': '55555555-aaaa-bbbb-cccc-555555555555'},
+            {'device_name': '/dev/sda2',
+             'source_type': 'snapshot',
+             'uuid': '66666666-aaaa-bbbb-cccc-555555555555'}
+        ]
+
+        self.compute_api._prepare_block_device_mapping(mappings)
+
+        expected_result = [
+            {'device_name': '/dev/sdb1',
+                'source_type': 'blank'},
+            {'device_name': '/dev/sda1',
+            'source_type': 'volume',
+            'volume_id': '55555555-aaaa-bbbb-cccc-555555555555'},
+            {'device_name': '/dev/sda2',
+             'source_type': 'snapshot',
+             'snapshot_id': '66666666-aaaa-bbbb-cccc-555555555555'}
+        ]
+
+        mappings.sort()
+        expected_result.sort()
+        self.assertThat(mappings, matchers.DictListMatches(expected_result))
+
+    def test_validate_bdm(self):
+        def fake_get(self, context, res_id):
+            return {'id': res_id}
+
+        self.stubs.Set(cinder.API, 'get', fake_get)
+        self.stubs.Set(cinder.API, 'get_snapshot', fake_get)
+
+        volume_id = '55555555-aaaa-bbbb-cccc-555555555555'
+        snapshot_id = '66666666-aaaa-bbbb-cccc-555555555555'
+
+        instance = self._create_fake_instance()
+        mappings = [
+            {
+                'device_name': '/dev/sdb4',
+                'source_type': 'blank',
+                'destination_type': 'local',
+                'device_type': 'disk',
+                'guest_format': 'swap',
+                'boot_index': -1,
+                'volume_size': 1
+            },
+            {
+                'device_name': '/dev/sda1',
+                'source_type': 'volume',
+                'destination_type': 'volume',
+                'device_type': 'disk',
+                'volume_id': volume_id,
+                'guest_format': None,
+                'boot_index': 1,
+                'volume_size': 6
+            },
+            {
+                'device_name': '/dev/sda2',
+                'source_type': 'snapshot',
+                'destination_type': 'volume',
+                'snapshot_id': snapshot_id,
+                'device_type': 'disk',
+                'guest_format': None,
+                'boot_index': 0,
+                'volume_size': 4
+            }
+        ]
+
+        # Make sure it passes at first
+        self.compute_api._validate_bdm(self.context, instance, mappings)
+
+        # Boot sequence
+        mappings[2]['boot_index'] = 2
+        self.assertRaises(exception.InvalidBDMBootSequence,
+                          self.compute_api._validate_bdm,
+                          self.context, instance, mappings)
+        mappings[2]['boot_index'] = 0
+
+        # Wrong destination type for volume and snapshot
+        for mapping_ind in (1, 2):
+            mappings[mapping_ind]['destination_type'] = 'local'
+            self.assertRaises(exception.InvalidBDMField,
+                              self.compute_api._validate_bdm,
+                              self.context, instance, mappings)
+            mappings[mapping_ind]['destination_type'] = 'volume'
+
+        # Missing ID for volume
+        del mappings[1]['volume_id']
+        self.assertRaises(exception.InvalidBDMMissingField,
+                          self.compute_api._validate_bdm,
+                          self.context, instance, mappings)
+        mappings[1]['volume_id'] = volume_id
+
+        # Missing ID for snapshot
+        del mappings[2]['snapshot_id']
+        self.assertRaises(exception.InvalidBDMMissingField,
+                          self.compute_api._validate_bdm,
+                          self.context, instance, mappings)
+        mappings[2]['snapshot_id'] = snapshot_id
+
+        # Boot from swap
+        mappings[0]['boot_index'] = 2
+        self.assertRaises(exception.InvalidBDMField,
+                          self.compute_api._validate_bdm,
+                          self.context, instance, mappings)
+        mappings[0]['boot_index'] = -1
+
+        CONF.max_local_block_devices = 0
+        self.assertRaises(exception.InvalidBDMLocalsLimit,
+                          self.compute_api._validate_bdm,
+                          self.context, instance, mappings)
+
+    def test_update_block_device_mapping(self):
+        swap_size = 1
+        instance_type = {'swap': swap_size}
+
+        instance = self._create_fake_instance()
+
+        def fake_get(self, context, res_id):
+            return {'id': res_id}
+
+        self.stubs.Set(cinder.API, 'get', fake_get)
+        self.stubs.Set(cinder.API, 'get_snapshot', fake_get)
+
+        volume_id = '55555555-aaaa-bbbb-cccc-555555555555'
+        snapshot_id = '66666666-aaaa-bbbb-cccc-555555555555'
+
+        mappings = [
+                {'virtual': 'swap', 'device': 'sdb4'},
+                {'virtual': 'ephemeral0', 'device': 'sdc1'}]
+
         block_device_mapping = [
-                # root
-                {'device_name': '/dev/sda1',
-                 'snapshot_id': '00000000-aaaa-bbbb-cccc-000000000000',
-                 'delete_on_termination': False},
-
-
-                # overwrite swap
-                {'device_name': '/dev/sdb2',
-                 'snapshot_id': '11111111-aaaa-bbbb-cccc-111111111111',
-                 'delete_on_termination': False},
-                {'device_name': '/dev/sdb3',
-                 'snapshot_id': '22222222-aaaa-bbbb-cccc-222222222222'},
-                {'device_name': '/dev/sdb4',
-                 'no_device': True},
-
-                # overwrite ephemeral
-                {'device_name': '/dev/sdc2',
-                 'snapshot_id': '33333333-aaaa-bbbb-cccc-333333333333',
-                 'delete_on_termination': False},
-                {'device_name': '/dev/sdc3',
-                 'snapshot_id': '44444444-aaaa-bbbb-cccc-444444444444'},
-                {'device_name': '/dev/sdc4',
-                 'no_device': True},
-
-                # volume
-                {'device_name': '/dev/sdd1',
-                 'snapshot_id': '55555555-aaaa-bbbb-cccc-555555555555',
-                 'delete_on_termination': False},
-                {'device_name': '/dev/sdd2',
-                 'snapshot_id': '66666666-aaaa-bbbb-cccc-666666666666'},
-                {'device_name': '/dev/sdd3',
-                 'snapshot_id': '77777777-aaaa-bbbb-cccc-777777777777'},
-                {'device_name': '/dev/sdd4',
-                 'no_device': True}]
+                {
+                'device_name': '/dev/sda1',
+                'source_type': 'volume',
+                'destination_type': 'volume',
+                'device_type': 'disk',
+                'volume_id': volume_id,
+                'guest_format': None,
+                'boot_index': 1,
+                'volume_size': 6
+            },
+            {
+                'device_name': '/dev/sda2',
+                'source_type': 'snapshot',
+                'destination_type': 'volume',
+                'snapshot_id': snapshot_id,
+                'device_type': 'disk',
+                'guest_format': None,
+                'boot_index': 0,
+                'volume_size': 4
+            }]
 
         self.compute_api._update_image_block_device_mapping(
             self.context, instance_type, instance['uuid'], mappings)
@@ -5860,19 +6029,25 @@ class ComputeAPITestCase(BaseTestCase):
         instance = db.instance_get_by_uuid(self.context, instance['uuid'])
         self.compute.terminate_instance(self.context, instance)
 
-    def test_volume_size(self):
+    def test_blank_device_size(self):
         ephemeral_size = 2
         swap_size = 3
+        volume_size = 5
+
+        swap_bdm = {'source_type': 'blank', 'dest_format': 'swap'}
+        ephemeral_bdm = {'source_type': 'blank', 'dest_format': None}
+        volume_bdm = {'source_type': 'volume', 'volume_size': volume_size}
+
         inst_type = {'ephemeral_gb': ephemeral_size, 'swap': swap_size}
-        self.assertEqual(self.compute_api._volume_size(inst_type,
-                                                       'ephemeral0'),
-                         ephemeral_size)
-        self.assertEqual(self.compute_api._volume_size(inst_type,
-                                                       'ephemeral1'),
-                         0)
-        self.assertEqual(self.compute_api._volume_size(inst_type,
-                                                       'swap'),
-                         swap_size)
+        self.assertEqual(
+            self.compute_api._blank_device_size(inst_type, ephemeral_bdm),
+            ephemeral_size)
+        self.assertEqual(
+            self.compute_api._blank_device_size(inst_type, swap_bdm),
+            swap_size)
+        self.assertEqual(
+            self.compute_api._blank_device_size(inst_type, volume_bdm),
+            volume_size)
 
     def test_reservation_id_one_instance(self):
         """Verify building an instance has a reservation_id that
