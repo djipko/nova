@@ -15,7 +15,6 @@
 #    under the License.
 
 import base64
-import itertools
 import os
 import re
 
@@ -105,13 +104,7 @@ def make_server(elem, detailed=False):
 server_nsmap = {None: xmlutil.XMLNS_V11, 'atom': xmlutil.XMLNS_ATOM}
 
 
-_bdm_v1_attrs = set(["volume_id", "snapshot_id", "device_name",
-                  "virtual_name", "volume_size"])
 
-
-_bdm_v2_attrs = set(['source_type', 'dest_type', 'uuid', 'guest_format',
-                     'disk_bus', 'device_type', 'boot_index', 'volume_size',
-                     'delete_on_termination', 'device_name'])
 
 
 class ServerTemplate(xmlutil.TemplateBuilder):
@@ -285,7 +278,7 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
                 if child.nodeName != "mapping":
                     continue
                 mapping = {}
-                for attr in _bdm_v2_attrs:
+                for attr in block_device.bdm_v2_attrs:
                     value = child.getAttribute(attr)
                     if value:
                         mapping[attr] = value
@@ -752,72 +745,10 @@ class Controller(wsgi.Controller):
             expl = _('accessIPv6 is not proper IPv6 format')
             raise exc.HTTPBadRequest(explanation=expl)
 
-    def _transform_bdm_v2(self, bdms_v1, image_uuid):
-        """Transform the old bdms to the new v2 format.
-        Default some fields as necessary.
-        """
-        def _blank_bdm():
-            blank = dict(zip(_bdm_v2_attrs, itertools.repeat(None)))
-            blank['boot_index'] = -1
-            return blank
-
-        bdms_v2 = []
-        for bdm in bdms_v1:
-
-            bdm_v2 = _blank_bdm()
-
-            virt_name = bdm.get('virt_name')
-            if block_device.is_swap_or_ephemeral(virt_name):
-                bdm_v2['source_type'] = 'blank'
-                bdm_v2['volume_size'] = bdm['volume_size']
-                bdm_v2['delete_on_termination'] = True
-
-                if virt_name == 'swap':
-                    bdm_v2['guest_format'] = 'swap'
-
-                bdms_v2.append(bdm_v2)
-
-            elif bdm.get('snapshot_id'):
-                bdm_v2['source_type'] = 'snapshot'
-                bdm_v2['uuid'] = bdm['snapshot_id']
-                bdm_v2['volume_size'] = bdm['volume_size']
-                bdm_v2['device_name'] = bdm['device_name']
-                bdm_v2['delete_on_termination'] = bdm['delete_on_termination']
-
-                bdms_v2.append(bdm_v2)
-
-            elif bdm.get('volume_id'):
-                bdm_v2['source_type'] = 'volume'
-                bdm_v2['uuid'] = bdm['volume_id']
-                bdm_v2['volum_size'] = bdm['volume_size']
-                bdm_v2['device_name'] = bdm['device_name']
-                bdm_v2['delete_on_termination'] = bdm['delete_on_termination']
-
-                bdms_v2.append(bdm_v2)
-            else:  # Log a warning that the bdm is not as expected
-                LOG.warn(_("Got an unexpected block device "
-                           "that cannot be converted to v2 format"))
-
-        if image_uuid:
-            image_bdm = _blank_bdm()
-            image_bdm['source_type'] = 'image'
-            image_bdm['uuid'] = image_uuid
-            image_bdm['delete_on_termination'] = True
-            bdms_v2 = [image_bdm] + bdms_v2
-
-        # Decide boot sequences:
-        non_boot = [bdm for bdm in bdms_v2 if bdm['source_type'] == 'blank']
-        bootable = [bdm for bdm in bdms_v2 if bdm not in non_boot]
-
-        for index, bdm in enumerate(bootable):
-            bdm['boot_index'] = index
-
-        return bootable + non_boot
-
     def _get_bdms_v2(self, block_device_mapping):
         """Do only basic bdm validations."""
 
-        attributes = _bdm_v2_attrs
+        attributes = block_device.bdm_v2_attrs
         needed_keys = set(['source_type'])
 
         validated_bdms = []
@@ -970,11 +901,15 @@ class Controller(wsgi.Controller):
                 raise exc.HTTPBadRequest(explanation=expl)
 
             block_device_mapping_v2.extend(
-                self._transform_bdm_v2(block_device_mapping, image_uuid))
+                block_device.transform_bdm_v2(
+                    block_device_mapping, image_uuid)
+            )
             validated_bdms = self._get_bdms_v2(block_device_mapping_v2)
         else:
             validated_bdms = self._get_bdms_v2(
-                self._transform_bdm_v2(block_device_mapping, image_uuid))
+                block_device.transform_bdm_v2(
+                    block_device_mapping, image_uuid)
+            )
 
         ret_resv_id = False
         # min_count and max_count are optional.  If they exist, they may come

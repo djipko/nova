@@ -22,6 +22,7 @@
 networking and storage of VMs, and compute hosts on which they run)."""
 
 import base64
+import copy
 import functools
 import re
 import string
@@ -492,10 +493,12 @@ class API(base.Base):
 
         block_device_mapping = block_device_mapping or []
         if min_count > 1 or max_count > 1:
-            if any(map(lambda bdm: 'volume_id' in bdm, block_device_mapping)):
+            if any(map(lambda bdm: bdm['source_type'] == 'volume',
+                       block_device_mapping)):
                 msg = _('Cannot attach one or more volumes to multiple'
                         ' instances')
                 raise exception.InvalidRequest(msg)
+
         if instance_type['disabled']:
             raise exception.InstanceTypeNotFound(
                     instance_type_id=instance_type['id'])
@@ -616,10 +619,10 @@ class API(base.Base):
 
             for i in xrange(num_instances):
                 options = base_options.copy()
+                instance_bdms = copy.deepcopy(block_device_mapping)
                 instance = self.create_db_entry_for_new_instance(
                         context, instance_type, image, options,
-                        security_groups, block_device_mapping,
-                        num_instances, i)
+                        security_group, instance_bdms, num_instances, i)
 
                 instances.append(instance)
                 instance_uuids.append(instance['uuid'])
@@ -706,9 +709,8 @@ class API(base.Base):
         else:
             return bdm.get('volume_size')
 
-    def _prepare_image_block_device_mapping(self, elevated_context,
-                                           instance_type, instance_uuid,
-                                           mappings):
+    def _prepare_image_block_device_mapping(self, instance_type,
+                                            instance_uuid, mappings):
         """Prepare block device mappings found in the image."""
         preped_bdm = []
 
@@ -876,7 +878,7 @@ class API(base.Base):
         image_mappings = image_properties.get('mappings', [])
         if image_mappings:
             image_mappings = self._prepare_image_block_device_mapping(
-                elevated, instance_type, instance_uuid, image_mappings)
+                instance_type, instance_uuid, image_mappings)
 
         self._prepare_block_device_mapping(block_device_mapping)
 

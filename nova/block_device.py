@@ -15,6 +15,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import itertools
 import re
 
 from nova.openstack.common import log as logging
@@ -27,6 +28,15 @@ _DEFAULT_MAPPINGS = {'ami': 'sda1',
                      'ephemeral0': 'sda2',
                      'root': DEFAULT_ROOT_DEV_NAME,
                      'swap': 'sda3'}
+
+
+bdm_v1_attrs = set(["volume_id", "snapshot_id", "device_name",
+                  "virtual_name", "volume_size"])
+
+
+bdm_v2_attrs = set(['source_type', 'destination_type', 'uuid', 'guest_format',
+                     'disk_bus', 'device_type', 'boot_index', 'volume_size',
+                     'delete_on_termination', 'device_name'])
 
 
 def properties_root_device_name(properties):
@@ -168,3 +178,73 @@ def volume_in_mapping(mount_device, block_device_info):
 
     LOG.debug(_("block_device_list %s"), block_device_list)
     return strip_dev(mount_device) in block_device_list
+
+def transform_bdm_v2(bdms_v1, image_uuid):
+    """Transform the old bdms to the new v2 format.
+    Default some fields as necessary.
+    """
+    def _blank_bdm():
+        blank = dict(zip(bdm_v2_attrs, itertools.repeat(None)))
+        blank['boot_index'] = -1
+        return blank
+
+    bdms_v2 = []
+    for bdm in bdms_v1:
+
+        bdm_v2 = _blank_bdm()
+
+        virt_name = bdm.get('virt_name')
+        volume_size = bdm.get('volume_size')
+
+        if is_swap_or_ephemeral(virt_name):
+            bdm_v2['source_type'] = 'blank'
+            bdm_v2['volume_size'] = bdm.get('volume_size', 0)
+            bdm_v2['delete_on_termination'] = True
+
+            if virt_name == 'swap':
+                bdm_v2['guest_format'] = 'swap'
+
+            bdms_v2.append(bdm_v2)
+
+        elif bdm.get('snapshot_id'):
+            bdm_v2['source_type'] = 'snapshot'
+            bdm_v2['destination_type'] = 'volume'
+            bdm_v2['uuid'] = bdm['snapshot_id']
+            if volume_size:
+                bdm_v2['volume_size'] = volume_size
+            bdm_v2['device_name'] = bdm.get('device_name')
+            bdm_v2['delete_on_termination'] = bdm.get(
+                'delete_on_termination', True)
+
+            bdms_v2.append(bdm_v2)
+
+        elif bdm.get('volume_id'):
+            bdm_v2['source_type'] = 'volume'
+            bdm_v2['destination_type'] = 'volume'
+            bdm_v2['uuid'] = bdm['volume_id']
+            if volume_size:
+                bdm_v2['volum_size'] = volume_size
+            bdm_v2['device_name'] = bdm.get('device_name')
+            bdm_v2['delete_on_termination'] = bdm.get(
+                'delete_on_termination', True)
+
+            bdms_v2.append(bdm_v2)
+        else:  # Log a warning that the bdm is not as expected
+            LOG.warn(_("Got an unexpected block device "
+                       "that cannot be converted to v2 format"))
+
+    if image_uuid:
+        image_bdm = _blank_bdm()
+        image_bdm['source_type'] = 'image'
+        image_bdm['uuid'] = image_uuid
+        image_bdm['delete_on_termination'] = True
+        bdms_v2 = [image_bdm] + bdms_v2
+
+    # Decide boot sequences:
+    non_boot = [bdm for bdm in bdms_v2 if bdm['source_type'] == 'blank']
+    bootable = [bdm for bdm in bdms_v2 if bdm not in non_boot]
+
+    for index, bdm in enumerate(bootable):
+        bdm['boot_index'] = index
+
+    return bootable + non_boot

@@ -188,7 +188,7 @@ class BaseTestCase(test.TestCase):
             """Create a block device mapping for the image"""
             image_bdm = {}
             image_bdm['source_type'] = 'image'
-            image_bdm['dest_type'] = 'local'
+            image_bdm['destination_type'] = 'local'
             image_bdm['uuid'] = image_ref
             image_bdm['disk_bus'] = None
             image_bdm['device_type'] = 'disk'

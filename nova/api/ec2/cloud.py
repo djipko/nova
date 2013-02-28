@@ -1297,9 +1297,6 @@ class CloudController(object):
             ramdisk = self._get_image(context, kwargs['ramdisk_id'])
             kwargs['ramdisk_id'] = ec2utils.id_to_glance_id(context,
                                                             ramdisk['id'])
-        for bdm in kwargs.get('block_device_mapping', []):
-            _parse_block_device_mapping(bdm)
-
         image = self._get_image(context, kwargs['image_id'])
         image_uuid = ec2utils.id_to_glance_id(context, image['id'])
 
@@ -1307,6 +1304,12 @@ class CloudController(object):
             image_state = self._get_image_state(image)
         else:
             raise exception.ImageNotFoundEC2(image_id=kwargs['image_id'])
+
+        ec2_bdms = kwargs.get('block_device_mapping', [])
+        for bdm in ec2_bdms:
+            _parse_block_device_mapping(bdm)
+        
+        openstack_bdms = block_device.transform_bdm_v2(ec2_bdms, image_uuid)
 
         if image_state != 'available':
             raise exception.EC2APIError(_('Image must be available'))
@@ -1324,7 +1327,7 @@ class CloudController(object):
             security_group=kwargs.get('security_group'),
             availability_zone=kwargs.get('placement', {}).get(
                                   'availability_zone'),
-            block_device_mapping=kwargs.get('block_device_mapping', {}))
+            block_device_mapping=openstack_bdms)
         return self._format_run_instances(context, resv_id)
 
     def _ec2_ids_to_instances(self, context, instance_id):
