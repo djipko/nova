@@ -108,7 +108,7 @@ class BootFromVolumeTest(test.TestCase):
 
     def test_create_root_volume(self):
         body = dict(server=dict(
-                name='test_server', imageRef=IMAGE_UUID,
+                name='test_server', imageRef='',
                 flavorRef=2, min_count=1, max_count=1,
                 block_device_mapping=[dict(
                         volume_id=1,
@@ -130,7 +130,7 @@ class BootFromVolumeTest(test.TestCase):
         self.assertEqual(FAKE_UUID, server['id'])
         self.assertEqual(CONF.password_length, len(server['adminPass']))
         self.assertEqual(len(_block_device_mapping_seen), 1)
-        self.assertEqual(_block_device_mapping_seen[0]['volume_id'], 1)
+        self.assertEqual(_block_device_mapping_seen[0]['uuid'], 1)
         self.assertEqual(_block_device_mapping_seen[0]['device_name'],
                 '/dev/vda')
 

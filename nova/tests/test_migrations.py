@@ -936,7 +936,6 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
         self.assertEqual(len(rows), 1)
  
     def _pre_upgrade_159(self, engine):
-<<<<<<< HEAD
         data = {
             'provider_fw_rules':
                 [
@@ -1034,8 +1033,6 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
                 self.assertEqual(value, result[key])
 
     def _pre_upgrade_161(self, engine):
-=======
->>>>>>> More test fixing
         fake_instances = [
             dict(uuid='mig154_uuid-1', image_ref='fake_image_1'),
             dict(uuid='mig154_uuid-2', image_ref=''),
@@ -1149,6 +1146,7 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
         self.assertEqual(bdm_3s[3].device_type, 'disk')
         self.assertEqual(bdm_3s[3].image_id, 'fake_image_2')
         self.assertEqual(bdm_3s[3].boot_index, 0)
+
 
 class TestBaremetalMigrations(BaseMigrationTestCase, CommonTestsMixIn):
     """Test sqlalchemy-migrate migrations."""

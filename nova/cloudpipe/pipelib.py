@@ -28,6 +28,7 @@ import zipfile
 
 from oslo.config import cfg
 
+from nova import block_device
 from nova import compute
 from nova.compute import instance_types
 from nova import crypto
@@ -130,13 +131,16 @@ class CloudPipe(object):
                 CONF.vpn_instance_type)
         instance_name = '%s%s' % (context.project_id, CONF.vpn_key_suffix)
         user_data = self.get_encoded_zip(context.project_id)
+        block_device_mapping = [block_device.create_image_bdm(
+            CONF.vpn_image_id)]
         return self.compute_api.create(context,
                                        instance_type,
                                        CONF.vpn_image_id,
                                        display_name=instance_name,
                                        user_data=user_data,
                                        key_name=key_name,
-                                       security_group=[group_name])
+                                       security_group=[group_name],
+                                       block_device_mapping=block_device_mapping)
 
     def setup_security_group(self, context):
         group_name = '%s%s' % (context.project_id, CONF.vpn_key_suffix)

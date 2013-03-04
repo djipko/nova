@@ -32,6 +32,7 @@ from nova.openstack.common import timeutils
 from nova import quota
 from nova.scheduler import driver as scheduler_driver
 from nova import test
+from nova.tests import fake_block_device
 import nova.tests.image.fake
 
 CONF = cfg.CONF
@@ -159,6 +160,7 @@ class QuotaIntegrationTestCase(test.TestCase):
     def _create_with_injected_files(self, files):
         api = compute.API()
         inst_type = instance_types.get_instance_type_by_name('m1.small')
+        fake_block_device.stub_out_validate_bdm(self.stubs, api)
         image_uuid = 'cedef40a-ed67-4d10-800e-17455edce175'
         api.create(self.context, min_count=1, max_count=1,
                 instance_type=inst_type, image_href=image_uuid,
@@ -168,6 +170,7 @@ class QuotaIntegrationTestCase(test.TestCase):
         api = compute.API()
         inst_type = instance_types.get_instance_type_by_name('m1.small')
         image_uuid = 'cedef40a-ed67-4d10-800e-17455edce175'
+        fake_block_device.stub_out_validate_bdm(self.stubs, api)
         api.create(self.context,
                    instance_type=inst_type,
                    image_href=image_uuid)

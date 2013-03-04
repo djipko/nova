@@ -30,6 +30,7 @@ import mox
 from oslo.config import cfg
 
 import nova
+from nova import block_device
 from nova import compute
 from nova.compute import api as compute_api
 from nova.compute import instance_types
@@ -61,6 +62,7 @@ from nova import quota
 from nova import test
 from nova.tests.compute import fake_resource_tracker
 from nova.tests.db import fakes as db_fakes
+from nova.tests import fake_block_device
 from nova.tests import fake_instance_actions
 from nova.tests import fake_network
 from nova.tests import fake_network_cache_model
@@ -183,19 +185,13 @@ class BaseTestCase(test.TestCase):
             for key in instance_types.system_metadata_instance_type_props:
                 sys_meta['instance_type_%s' % key] = inst_type[key]
             return sys_meta
-
-        def _create_image_bdm(image_ref):
-            """Create a block device mapping for the image"""
-            image_bdm = {}
-            image_bdm['source_type'] = 'image'
-            image_bdm['destination_type'] = 'local'
-            image_bdm['uuid'] = image_ref
-            image_bdm['disk_bus'] = None
-            image_bdm['device_type'] = 'disk'
-            image_bdm['boot_index'] = 0
-            image_bdm['volume_size'] = 1
-            image_bdm['delete_on_termination'] = True
-            image_bdm['device_name'] = None
+        
+        def _create_image_bdm_mapping(context, instance):
+            if instance['image_ref']:
+                api_bdm = block_device.create_image_bdm(instance['image_ref'])
+                bdm = block_device.bdm_api_to_db_format([api_bdm])[0]
+                bdm['instance_uuid'] = instance['uuid']
+                db.block_device_mapping_create(context, bdm)
 
         inst = {}
         inst['vm_state'] = vm_states.ACTIVE
@@ -217,11 +213,13 @@ class BaseTestCase(test.TestCase):
         inst['os_type'] = 'Linux'
         inst['system_metadata'] = make_fake_sys_meta()
         inst.update(params)
-        if inst['image_ref']:
-            inst['block_device_mapping'] = [_create_image_bdm(inst['image_ref'])]
+
         _create_service_entries(self.context.elevated(),
                 {'fake_zone': [inst['host']]})
-        return db.instance_create(self.context, inst)
+        instance = db.instance_create(self.context, inst)
+        _create_image_bdm_mapping(self.context, instance)
+
+        return instance
 
     def _create_instance(self, params=None, type_name='m1.tiny'):
         """Create a test instance. Returns uuid."""
@@ -3856,6 +3854,7 @@ class ComputeTestCase(BaseTestCase):
         self.assertEqual(len(updated_ats), len(set(updated_ats)))
 
 
+
 class ComputeAPITestCase(BaseTestCase):
 
     def setUp(self):
@@ -3887,7 +3886,7 @@ class ComputeAPITestCase(BaseTestCase):
                 raise exception.ImageNotFound(image_id=image_id)
 
         self.fake_show = fake_show
-
+    
     def _run_instance(self, params=None):
         instance = jsonutils.to_primitive(self._create_fake_instance(params))
         instance_uuid = instance['uuid']
@@ -3905,6 +3904,7 @@ class ComputeAPITestCase(BaseTestCase):
 
         self.fake_image['min_ram'] = 2
         self.stubs.Set(fake_image._FakeImageService, 'show', self.fake_show)
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         self.assertRaises(exception.InstanceTypeMemoryTooSmall,
             self.compute_api.create, self.context,
@@ -3924,6 +3924,7 @@ class ComputeAPITestCase(BaseTestCase):
 
         self.fake_image['min_disk'] = 2
         self.stubs.Set(fake_image._FakeImageService, 'show', self.fake_show)
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         self.assertRaises(exception.InstanceTypeDiskTooSmall,
             self.compute_api.create, self.context,
@@ -3946,6 +3947,7 @@ class ComputeAPITestCase(BaseTestCase):
         self.fake_image['min_disk'] = 2
         self.fake_image['name'] = 'fake_name'
         self.stubs.Set(fake_image._FakeImageService, 'show', self.fake_show)
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         (refs, resv_id) = self.compute_api.create(self.context,
                 inst_type, self.fake_image['id'])
@@ -3959,6 +3961,7 @@ class ComputeAPITestCase(BaseTestCase):
         inst_type['memory_mb'] = 1
 
         self.stubs.Set(fake_image._FakeImageService, 'show', self.fake_show)
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         (refs, resv_id) = self.compute_api.create(self.context,
                 inst_type, self.fake_image['id'])
@@ -3967,6 +3970,7 @@ class ComputeAPITestCase(BaseTestCase):
     def test_create_instance_defaults_display_name(self):
         # Verify that an instance cannot be created without a display_name.
         cases = [dict(), dict(display_name=None)]
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
         for instance in cases:
             (ref, resv_id) = self.compute_api.create(self.context,
                 instance_types.get_default_instance_type(),
@@ -3978,6 +3982,8 @@ class ComputeAPITestCase(BaseTestCase):
 
     def test_create_instance_sets_system_metadata(self):
         # Make sure image properties are copied into system metadata.
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
+
         (ref, resv_id) = self.compute_api.create(
                 self.context,
                 instance_type=instance_types.get_default_instance_type(),
@@ -3998,6 +4004,9 @@ class ComputeAPITestCase(BaseTestCase):
 
     def test_create_saves_type_in_system_metadata(self):
         instance_type = instance_types.get_default_instance_type()
+
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
+
         (ref, resv_id) = self.compute_api.create(
                 self.context,
                 instance_type=instance_type,
@@ -4021,6 +4030,9 @@ class ComputeAPITestCase(BaseTestCase):
     def test_create_instance_associates_security_groups(self):
         # Make sure create associates security groups.
         group = self._create_group()
+
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
+
         (ref, resv_id) = self.compute_api.create(
                 self.context,
                 instance_type=instance_types.get_default_instance_type(),
@@ -4037,6 +4049,8 @@ class ComputeAPITestCase(BaseTestCase):
 
     def test_create_instance_with_invalid_security_group_raises(self):
         instance_type = instance_types.get_default_instance_type()
+
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         pre_build_len = len(db.instance_get_all(self.context))
         self.assertRaises(exception.SecurityGroupNotFoundForProject,
@@ -4055,6 +4069,7 @@ class ComputeAPITestCase(BaseTestCase):
 
         self.fake_image['min_ram'] = 2
         self.stubs.Set(fake_image._FakeImageService, 'show', self.fake_show)
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         self.assertRaises(exception.InstanceUserDataTooLarge,
             self.compute_api.create, self.context, inst_type,
@@ -4067,6 +4082,7 @@ class ComputeAPITestCase(BaseTestCase):
 
         self.fake_image['min_ram'] = 2
         self.stubs.Set(fake_image._FakeImageService, 'show', self.fake_show)
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         self.assertRaises(exception.InstanceUserDataMalformed,
             self.compute_api.create, self.context, inst_type,
@@ -4079,6 +4095,7 @@ class ComputeAPITestCase(BaseTestCase):
 
         self.fake_image['min_ram'] = 2
         self.stubs.Set(fake_image._FakeImageService, 'show', self.fake_show)
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         # NOTE(mikal): a string of length 48510 encodes to 65532 characters of
         # base64
@@ -4099,6 +4116,7 @@ class ComputeAPITestCase(BaseTestCase):
         self.stubs.Set(self.compute_api,
                 '_populate_instance_for_create',
                 _fake_populate)
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         cases = [(None, 'server-%s' % fake_uuids[0]),
                  ('Hello, Server!', 'hello-server'),
@@ -4117,6 +4135,8 @@ class ComputeAPITestCase(BaseTestCase):
         # Make sure destroying disassociates security groups.
         group = self._create_group()
 
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
+
         (ref, resv_id) = self.compute_api.create(
                 self.context,
                 instance_type=instance_types.get_default_instance_type(),
@@ -4132,6 +4152,8 @@ class ComputeAPITestCase(BaseTestCase):
     def test_destroy_security_group_disassociates_instances(self):
         # Make sure destroying security groups disassociates instances.
         group = self._create_group()
+
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
 
         (ref, resv_id) = self.compute_api.create(
                 self.context,
@@ -4732,6 +4754,7 @@ class ComputeAPITestCase(BaseTestCase):
     def test_hostname_create(self):
         # Ensure instance hostname is set during creation.
         inst_type = instance_types.get_instance_type_by_name('m1.tiny')
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
         (instances, _) = self.compute_api.create(self.context,
                                                  inst_type,
                                                  None,
@@ -5749,15 +5772,7 @@ class ComputeAPITestCase(BaseTestCase):
 
         db.instance_destroy(_context, instance['uuid'])
 
-    @staticmethod
-    def _parse_db_block_device_mapping(bdm_ref):
-        bdm = {}
-        for k, v in bdm.iteritems():
-            bdm['attr'] = bdm_ref.get(attr)
-
-        return bdm
-
-    def test_prepare_image_block_device_mapping(self):
+    def test_prepare_image_mapping(self):
         swap_size = 1
         ephemeral_size = 1
         instance_type = {'swap': swap_size,
@@ -5773,8 +5788,8 @@ class ComputeAPITestCase(BaseTestCase):
                 {'virtual': 'ephemeral1', 'device': 'sdc2'},
         ]
 
-        preped_bdm = self.compute_api._prepare_image_block_device_mapping(
-            self.context, instance_type, instance['uuid'], mappings)
+        preped_bdm = self.compute_api._prepare_image_mapping(
+            instance_type, instance['uuid'], mappings)
 
         expected_result = [
             {
@@ -5810,34 +5825,32 @@ class ComputeAPITestCase(BaseTestCase):
         expected_result.sort()
         self.assertThat(preped_bdm, matchers.DictListMatches(expected_result))
 
-    def test_prepare_block_device_mapping(self):
-        mappings = [
-            {'device_name': '/dev/sdb1',
-             'source_type': 'blank'},
+    def test_prepare_image_block_device_mapping(self):
+        instance = {'root_device_name': '/dev/sda1'}
+
+        mappings_v1 = [
+            {'device_name': 'dev/sda1',
+             'volume_id': 'fake_volume_id'}]
+
+        mappings_v2 = [
             {'device_name': '/dev/sda1',
              'source_type': 'volume',
-             'uuid': '55555555-aaaa-bbbb-cccc-555555555555'},
-            {'device_name': '/dev/sda2',
-             'source_type': 'snapshot',
-             'uuid': '66666666-aaaa-bbbb-cccc-555555555555'}
+             'volume_id': 'fake-volume-id',
+             'boot_index': 0},
         ]
 
-        self.compute_api._prepare_block_device_mapping(mappings)
+        # Test the standard case
+        preped_bdm = self.compute_api._prepare_image_block_device_mapping(instance,
+                                                                    mappings_v2)
+        for got, exp in zip(preped_bdm, mappings_v2):
+            self.assertThat(got, matchers.IsSubDictOf(got))
 
-        expected_result = [
-            {'device_name': '/dev/sdb1',
-                'source_type': 'blank'},
-            {'device_name': '/dev/sda1',
-            'source_type': 'volume',
-            'volume_id': '55555555-aaaa-bbbb-cccc-555555555555'},
-            {'device_name': '/dev/sda2',
-             'source_type': 'snapshot',
-             'snapshot_id': '66666666-aaaa-bbbb-cccc-555555555555'}
-        ]
+        # Test the v1 mappings
+        preped_bdm = self.compute_api._prepare_image_block_device_mapping(instance,
+                                                                    mappings_v1)
+        for got, exp in zip(preped_bdm, mappings_v2):
+            self.assertThat(got, matchers.IsSubDictOf(got))
 
-        mappings.sort()
-        expected_result.sort()
-        self.assertThat(mappings, matchers.DictListMatches(expected_result))
 
     def test_validate_bdm(self):
         def fake_get(self, context, res_id):
@@ -5927,31 +5940,30 @@ class ComputeAPITestCase(BaseTestCase):
                           self.context, instance, mappings)
 
     def test_update_block_device_mapping(self):
-        swap_size = 1
-        instance_type = {'swap': swap_size}
-
-        instance = self._create_fake_instance()
-
-        def fake_get(self, context, res_id):
-            return {'id': res_id}
-
-        self.stubs.Set(cinder.API, 'get', fake_get)
-        self.stubs.Set(cinder.API, 'get_snapshot', fake_get)
-
-        volume_id = '55555555-aaaa-bbbb-cccc-555555555555'
-        snapshot_id = '66666666-aaaa-bbbb-cccc-555555555555'
-
-        mappings = [
-                {'virtual': 'swap', 'device': 'sdb4'},
-                {'virtual': 'ephemeral0', 'device': 'sdc1'}]
+        instance = self._create_fake_instance(params={'image_ref': ''})
+    
+        def _parse_db_block_device_mapping(bdm_ref):
+            bdm = {}
+            for k, v in bdm_ref.iteritems():
+                bdm[k] = v
+            return bdm
 
         block_device_mapping = [
-                {
+            {
+                'device_name': '/dev/sdb4',
+                'source_type': 'blank',
+                'destination_type': 'local',
+                'device_type': 'disk',
+                'guest_format': 'swap',
+                'boot_index': -1,
+                'volume_size': 0
+            },
+            {
                 'device_name': '/dev/sda1',
                 'source_type': 'volume',
                 'destination_type': 'volume',
                 'device_type': 'disk',
-                'volume_id': volume_id,
+                'volume_id': 'fake_vol_id',
                 'guest_format': None,
                 'boot_index': 1,
                 'volume_size': 6
@@ -5960,68 +5972,31 @@ class ComputeAPITestCase(BaseTestCase):
                 'device_name': '/dev/sda2',
                 'source_type': 'snapshot',
                 'destination_type': 'volume',
-                'snapshot_id': snapshot_id,
+                'snapshot_id': 'fake_snap_id',
                 'device_type': 'disk',
                 'guest_format': None,
                 'boot_index': 0,
                 'volume_size': 4
             }]
 
-        self.compute_api._update_image_block_device_mapping(
-            self.context, instance_type, instance['uuid'], mappings)
-
-        bdms = [self._parse_db_block_device_mapping(bdm_ref)
-                for bdm_ref in db.block_device_mapping_get_all_by_instance(
-                    self.context, instance['uuid'])]
-        expected_result = [
-            {'virtual_name': 'swap', 'device_name': '/dev/sdb1',
-             'volume_size': swap_size},
-            {'virtual_name': 'ephemeral0', 'device_name': '/dev/sdc1'},
-
-            # NOTE(yamahata): ATM only ephemeral0 is supported.
-            #                 they're ignored for now
-            #{'virtual_name': 'ephemeral1', 'device_name': '/dev/sdc2'},
-            #{'virtual_name': 'ephemeral2', 'device_name': '/dev/sdc3'}
-            ]
-        bdms.sort()
-        expected_result.sort()
-        self.assertThat(bdms, matchers.DictListMatches(expected_result))
-
         self.compute_api._update_block_device_mapping(
-            self.context, instance_types.get_default_instance_type(),
-            instance['uuid'], block_device_mapping)
-        bdms = [self._parse_db_block_device_mapping(bdm_ref)
+            self.context, instance['uuid'], block_device_mapping)
+
+        # We expect the uuid to be added and the
+        #swap to be dropped because of 0 size
+        expected_result = block_device_mapping[1:]
+        for bdm in expected_result:
+            bdm['instance_uuid'] = instance['uuid']
+
+        bdms = [_parse_db_block_device_mapping(bdm_ref)
                 for bdm_ref in db.block_device_mapping_get_all_by_instance(
                     self.context, instance['uuid'])]
-        expected_result = [
-            {'snapshot_id': '00000000-aaaa-bbbb-cccc-000000000000',
-               'device_name': '/dev/sda1'},
 
-            {'virtual_name': 'swap', 'device_name': '/dev/sdb1',
-             'volume_size': swap_size},
-            {'snapshot_id': '11111111-aaaa-bbbb-cccc-111111111111',
-               'device_name': '/dev/sdb2'},
-            {'snapshot_id': '22222222-aaaa-bbbb-cccc-222222222222',
-                'device_name': '/dev/sdb3'},
-            {'no_device': True, 'device_name': '/dev/sdb4'},
-
-            {'virtual_name': 'ephemeral0', 'device_name': '/dev/sdc1'},
-            {'snapshot_id': '33333333-aaaa-bbbb-cccc-333333333333',
-                'device_name': '/dev/sdc2'},
-            {'snapshot_id': '44444444-aaaa-bbbb-cccc-444444444444',
-                'device_name': '/dev/sdc3'},
-            {'no_device': True, 'device_name': '/dev/sdc4'},
-
-            {'snapshot_id': '55555555-aaaa-bbbb-cccc-555555555555',
-                'device_name': '/dev/sdd1'},
-            {'snapshot_id': '66666666-aaaa-bbbb-cccc-666666666666',
-                'device_name': '/dev/sdd2'},
-            {'snapshot_id': '77777777-aaaa-bbbb-cccc-777777777777',
-                'device_name': '/dev/sdd3'},
-            {'no_device': True, 'device_name': '/dev/sdd4'}]
         bdms.sort()
         expected_result.sort()
-        self.assertThat(bdms, matchers.DictListMatches(expected_result))
+        self.assertTrue(len(bdms) == len(expected_result))
+        for saved, expected in zip(bdms, expected_result):
+            self.assertThat(expected, matchers.IsSubDictOf(saved))
 
         for bdm in db.block_device_mapping_get_all_by_instance(
             self.context, instance['uuid']):
@@ -6052,6 +6027,9 @@ class ComputeAPITestCase(BaseTestCase):
     def test_reservation_id_one_instance(self):
         """Verify building an instance has a reservation_id that
         matches return value from create"""
+
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
+
         (refs, resv_id) = self.compute_api.create(self.context,
                 instance_types.get_default_instance_type(), None)
         try:
@@ -6065,6 +6043,9 @@ class ComputeAPITestCase(BaseTestCase):
         reservation_id being returned equal to reservation id set
         in both instances
         """
+
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
+
         (refs, resv_id) = self.compute_api.create(self.context,
                 instance_types.get_default_instance_type(), None,
                 min_count=2, max_count=2)
@@ -6078,6 +6059,9 @@ class ComputeAPITestCase(BaseTestCase):
         db.instance_destroy(self.context, refs[0]['uuid'])
 
     def test_multi_instance_display_name_template(self):
+
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
+
         self.flags(multi_instance_display_name_template='%(name)s')
         (refs, resv_id) = self.compute_api.create(self.context,
                 instance_types.get_default_instance_type(), None,
@@ -7130,6 +7114,8 @@ class ComputePolicyTestCase(BaseTestCase):
                  "compute:create:forced_host": []}
         self.policy.set_rules(rules)
 
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
+
         self.compute_api.create(self.context, None, '1',
                                 availability_zone='1:1')
 
@@ -7269,6 +7255,7 @@ class DisabledInstanceTypesTestCase(BaseTestCase):
 
     def test_can_build_instance_from_visible_instance_type(self):
         self.inst_type['disabled'] = False
+        fake_block_device.stub_out_validate_bdm(self.stubs, self.compute_api)
         # Assert that exception.InstanceTypeNotFound is not raised
         self.compute_api.create(self.context, self.inst_type, None)
 

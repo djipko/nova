@@ -48,6 +48,7 @@ from nova.openstack.common import rpc
 from nova import policy
 from nova import test
 from nova.tests.api.openstack import fakes
+from nova.tests import fake_block_device
 from nova.tests import fake_network
 from nova.tests.image import fake
 from nova.tests import matchers
@@ -2238,15 +2239,25 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_volumes_enabled(self):
         self.ext_mgr.extensions = {'os-volumes': 'fake'}
-        bdm = [{'device_name': 'foo'}]
-        params = {'block_device_mapping': bdm}
+        bdm_v1 = [{'volume_id': 'fake_volume'}]
+        # Image mapping will be inserted in the list
+        bdm_v2 = [{'source_type': 'image',
+                   'boot_index': 0},
+                  {'uuid': 'fake_volume',
+                   'source_type': 'volume',
+                   'boot_index': 1}]
+        params = {'block_device_mapping': bdm_v1}
         old_create = compute_api.API.create
 
         def create(*args, **kwargs):
-            self.assertEqual(kwargs['block_device_mapping'], bdm)
+            # The image volume will be created
+            self.assertEqual(len(kwargs['block_device_mapping']), 2)
+            for ref, received  in zip(bdm_v2, kwargs['block_device_mapping']):
+                self.assertThat(ref, matchers.IsSubDictOf(received))
             return old_create(*args, **kwargs)
 
         self.stubs.Set(compute_api.API, 'create', create)
+        fake_block_device.stub_out_validate_bdm(self.stubs, compute_api.API)
         self._test_create_extra(params)
 
     def test_create_instance_with_volumes_enabled_no_image(self):
@@ -2271,16 +2282,21 @@ class ServersControllerCreateTest(test.TestCase):
         os-volumes extension is enabled and bdms are supplied
         """
         self.ext_mgr.extensions = {'os-volumes': 'fake'}
-        bdm = [{'device_name': 'foo'}]
-        params = {'block_device_mapping': bdm}
+        bdm_v1 = [{'volume_id': 'fake_volume'}]
+        bdm_v2 = [{'uuid': 'fake_volume',
+                   'boot_index': 0}]
+        params = {'block_device_mapping': bdm_v1}
         old_create = compute_api.API.create
 
         def create(*args, **kwargs):
-            self.assertEqual(kwargs['block_device_mapping'], bdm)
+            self.assertEqual(len(kwargs['block_device_mapping']), 1)
+            self.assertThat(bdm_v2[0],
+                            matchers.IsSubDictOf(kwargs['block_device_mapping'][0]))
             self.assertNotIn('imageRef', kwargs)
             return old_create(*args, **kwargs)
 
         self.stubs.Set(compute_api.API, 'create', create)
+        fake_block_device.stub_out_validate_bdm(self.stubs, compute_api.API)
         self._test_create_extra(params, no_image=True)
 
     def test_create_instance_with_volumes_disabled(self):
@@ -2289,7 +2305,12 @@ class ServersControllerCreateTest(test.TestCase):
         old_create = compute_api.API.create
 
         def create(*args, **kwargs):
-            self.assertEqual(kwargs['block_device_mapping'], None)
+            # Controller disregards the passed
+            # block device, but creates one for the image
+            self.assertEqual(len(kwargs['block_device_mapping']), 1)
+            self.assertEqual(
+                kwargs['block_device_mapping'][0]['source_type'],
+                'image')
             return old_create(*args, **kwargs)
 
         self.stubs.Set(compute_api.API, 'create', create)
@@ -2365,25 +2386,28 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_bdm_delete_on_termination(self):
         self.ext_mgr.extensions = {'os-volumes': 'fake'}
-        bdm = [{'device_name': 'foo1', 'delete_on_termination': 1},
-               {'device_name': 'foo2', 'delete_on_termination': True},
-               {'device_name': 'foo3', 'delete_on_termination': 'invalid'},
-               {'device_name': 'foo4', 'delete_on_termination': 0},
-               {'device_name': 'foo5', 'delete_on_termination': False}]
+        bdm = [{'volume_id': 'foo1', 'delete_on_termination': 1},
+               {'volume_id': 'foo2', 'delete_on_termination': True},
+               {'volume_id': 'foo3', 'delete_on_termination': 'invalid'},
+               {'volume_id': 'foo4', 'delete_on_termination': 0},
+               {'volume_id': 'foo5', 'delete_on_termination': False}]
         expected_dbm = [
-            {'device_name': 'foo1', 'delete_on_termination': True},
-            {'device_name': 'foo2', 'delete_on_termination': True},
-            {'device_name': 'foo3', 'delete_on_termination': False},
-            {'device_name': 'foo4', 'delete_on_termination': False},
-            {'device_name': 'foo5', 'delete_on_termination': False}]
+            {'uuid': 'foo1', 'delete_on_termination': True},
+            {'uuid': 'foo2', 'delete_on_termination': True},
+            {'uuid': 'foo3', 'delete_on_termination': False},
+            {'uuid': 'foo4', 'delete_on_termination': False},
+            {'uuid': 'foo5', 'delete_on_termination': False}]
         params = {'block_device_mapping': bdm}
         old_create = compute_api.API.create
 
         def create(*args, **kwargs):
-            self.assertEqual(kwargs['block_device_mapping'], expected_dbm)
+            for expected, got in zip(
+                expected_dbm, kwargs['block_device_mapping'][1:]):
+                self.assertThat(expected, matchers.IsSubDictOf(got))
             return old_create(*args, **kwargs)
 
         self.stubs.Set(compute_api.API, 'create', create)
+        fake_block_device.stub_out_validate_bdm(self.stubs, compute_api.API)
         self._test_create_extra(params)
 
     def test_create_instance_with_user_data_enabled(self):

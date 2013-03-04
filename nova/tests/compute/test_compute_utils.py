@@ -99,9 +99,13 @@ class ComputeValidateDeviceTestCase(test.TestCase):
     def _fake_bdm(device):
         return {
             'device_name': device,
-            'no_device': None,
-            'volume_id': 'fake',
-            'snapshot_id': None
+            'source_type': 'volume',
+            'uuid': 'fake',
+            'destination_type': 'volume',
+            'device_type': 'disk',
+            'guest_format': None,
+            'boot_index': -1,
+            'volume_size': 1
         }
 
     def test_wrap(self):

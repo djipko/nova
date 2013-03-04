@@ -775,13 +775,17 @@ class Controller(wsgi.Controller):
                         bdm['delete_on_termination'])
 
             # Make sure that the integer keys are valid
-            if 'boot_index' in bdm:
+            if bdm.get('boot_index'):
                 try:
                     bdm['boot_index'] = int(bdm['boot_index'])
                 except ValueError:
                     expl = _(
                         "Invalid 'size' field found in device definitions")
                     raise exc.HTTPBadRequest(explanation=expl)
+
+            # Make sure that device_name isn't too long
+            if bdm.get('device_name'):
+                self._validate_device_name(bdm['device_name'])
 
             validated_bdms.append(bdm)
 
@@ -882,7 +886,6 @@ class Controller(wsgi.Controller):
         if self.ext_mgr.is_loaded('os-volumes'):
             block_device_mapping = server_dict.get('block_device_mapping', [])
             for bdm in block_device_mapping:
-                self._validate_device_name(bdm["device_name"])
                 if 'delete_on_termination' in bdm:
                     bdm['delete_on_termination'] = utils.bool_from_str(
                         bdm['delete_on_termination'])
@@ -901,13 +904,13 @@ class Controller(wsgi.Controller):
                 raise exc.HTTPBadRequest(explanation=expl)
 
             block_device_mapping_v2.extend(
-                block_device.transform_bdm_v2(
+                block_device.bdm_v1_to_v2(
                     block_device_mapping, image_uuid)
             )
             validated_bdms = self._get_bdms_v2(block_device_mapping_v2)
         else:
             validated_bdms = self._get_bdms_v2(
-                block_device.transform_bdm_v2(
+                block_device.bdm_v1_to_v2(
                     block_device_mapping, image_uuid)
             )
 

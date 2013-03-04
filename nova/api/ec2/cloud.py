@@ -1309,7 +1309,7 @@ class CloudController(object):
         for bdm in ec2_bdms:
             _parse_block_device_mapping(bdm)
         
-        openstack_bdms = block_device.transform_bdm_v2(ec2_bdms, image_uuid)
+        openstack_bdms = block_device.bdm_v1_to_v2(ec2_bdms, image_uuid)
 
         if image_state != 'available':
             raise exception.EC2APIError(_('Image must be available'))

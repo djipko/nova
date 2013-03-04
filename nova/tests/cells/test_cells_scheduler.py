@@ -26,6 +26,7 @@ from nova import exception
 from nova.openstack.common import uuidutils
 from nova import test
 from nova.tests.cells import fakes
+from nova.tests import fake_block_device
 
 CONF = cfg.CONF
 CONF.import_opt('scheduler_retries', 'nova.cells.scheduler', group='cells')
@@ -53,15 +54,20 @@ class CellsSchedulerTestCase(test.TestCase):
         # Just grab the first instance type
         inst_type = db.instance_type_get(self.ctxt, 1)
         image = {'properties': {}}
+        fake_image_ref = 'fake_image_ref'
+
         instance_props = {'hostname': 'meow',
                           'display_name': 'moo',
-                          'image_ref': 'fake_image_ref',
+                          'image_ref': fake_image_ref,
                           'user_id': self.ctxt.user_id,
                           'project_id': self.ctxt.project_id}
         request_spec = {'instance_type': inst_type,
                         'image': image,
                         'security_group': ['default'],
-                        'block_device_mapping': [],
+                        'block_device_mapping': [
+                            fake_block_device.create_fake_image_bdm(
+                                fake_image_ref)    
+                        ],
                         'instance_properties': instance_props,
                         'instance_uuids': self.instance_uuids}
 

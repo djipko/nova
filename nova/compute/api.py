@@ -619,10 +619,9 @@ class API(base.Base):
 
             for i in xrange(num_instances):
                 options = base_options.copy()
-                instance_bdms = copy.deepcopy(block_device_mapping)
                 instance = self.create_db_entry_for_new_instance(
                         context, instance_type, image, options,
-                        security_group, instance_bdms, num_instances, i)
+                        security_groups, block_device_mapping, num_instances, i)
 
                 instances.append(instance)
                 instance_uuids.append(instance['uuid'])
@@ -709,7 +708,7 @@ class API(base.Base):
         else:
             return bdm.get('volume_size')
 
-    def _prepare_image_block_device_mapping(self, instance_type,
+    def _prepare_image_mapping(self, instance_type,
                                             instance_uuid, mappings):
         """Prepare block device mappings found in the image."""
         preped_bdm = []
@@ -747,27 +746,39 @@ class API(base.Base):
 
         return preped_bdm
 
-    def _prepare_block_device_mapping(self, block_device_mapping):
-        for bdm in block_device_mapping:
+    def _prepare_image_block_device_mapping(self, instance, image_bdms):
+        """This will prepare the block_device_mapping stored with
+        the image for use with the current block device format.
+        
+        Image has block device mapping only if it was the result of
+        snapshoting a volume based instance (see method
+        snapshot_volume_backed) so we need to make sure we don't boot
+        from the image instead of the intended volume.
+        """
+        
+        # Image block device mapping might be in the old format
+        v2_bdms = len(filter(lambda bdm: 'source_type' in bdm, image_bdms))
+        assert v2_bdms in (0, len(image_bdms))
 
-            source_type = bdm.get('source_type')
-            uuid = bdm.get('uuid')
+        if not v2_bdms:
+            image_bdms = block_device.bdm_v1_to_v2(image_bdms, None,
+                                                       assign_boot_index=False)
+            image_bdms = block_device.bdm_api_to_db_format(image_bdms)
+            # Here we need to rely on device_name to find out the root dev
+            # because it was used when the image was created.
+            root_device_name = block_device.strip_dev(
+                instance.get('root_device_name'))
+            if root_device_name:
+                boot_device = [bdm for bdm in image_bdms if
+                               block_device.strip_dev(
+                                bdm['device_name']) == root_device_name]
+                if boot_device:
+                    boot_device[0]['boot_index'] = 0
+                return image_bdms
+        return image_bdms
 
-            if source_type not in ('volume', 'snapshot', 'image'):
-                continue
-
-            if source_type == 'volume':
-                bdm['volume_id'] = uuid
-            elif source_type == 'snapshot':
-                bdm['snapshot_id'] = uuid
-            elif source_type == 'image':
-                bdm['image_id'] = uuid
-
-            del bdm['uuid']
-
-    def _update_block_device_mapping(self, elevated_context,
-                                     instance_type, instance_uuid,
-                                     block_device_mapping):
+    def _update_block_device_mapping(self, context,
+                                     instance_uuid, block_device_mapping):
         """tell vm driver to attach volume at boot time by updating
         BlockDeviceMapping
         """
@@ -780,7 +791,7 @@ class API(base.Base):
             if bdm.get('volume_size') == 0:
                 continue
 
-            self.db.block_device_mapping_update_or_create(elevated_context,
+            self.db.block_device_mapping_update_or_create(context,
                                                           bdm)
 
     def _validate_bdm(self, context, instance, block_device_mapping):
@@ -804,7 +815,7 @@ class API(base.Base):
 
         # TODO(ndipanov):  Might want to move this to a separate
         #                   module and make it a bit more generic
-        def _bdm_rule_engine(bdm, field, rules_dict):
+        def _bdm_rule_engine(field, rules_dict, bdm):
             field_val = bdm.get(field)
             if not field_val:
                 return
@@ -839,7 +850,7 @@ class API(base.Base):
 
         for bdm in block_device_mapping:
             # Make sure the bdm obeys the rules
-            _bdm_rule_engine(bdm, 'source_type', source_rules)
+            _bdm_rule_engine('source_type', source_rules, bdm)
 
             # TODO(ndipanov):  Check that the image is accessible too
             snapshot_id = bdm.get('snapshot_id')
@@ -877,13 +888,17 @@ class API(base.Base):
         image_properties = image.get('properties', {})
         image_mappings = image_properties.get('mappings', [])
         if image_mappings:
-            image_mappings = self._prepare_image_block_device_mapping(
+            image_mappings = self._prepare_image_mapping(
                 instance_type, instance_uuid, image_mappings)
 
-        self._prepare_block_device_mapping(block_device_mapping)
-
         image_bdm = image_properties.get('block_device_mapping', [])
-        self._prepare_block_device_mapping(image_bdm)
+        image_bdm = self._prepare_image_block_device_mapping(instance,
+                                                             image_bdm)
+        bootable_in_image_bdm = bool([bdm for bdm in image_bdm
+                                      if bdm.get('boot_index') == 0])
+
+        block_device_mapping = block_device.bdm_api_to_db_format(
+            block_device_mapping, drop_bootable_image=bootable_in_image_bdm)
 
         # Validate block_device mappings - might raise exceptions
         self._validate_bdm(context, instance,
@@ -892,8 +907,8 @@ class API(base.Base):
         for mapping in (image_mappings, image_bdm, block_device_mapping):
             if not mapping:
                 continue
-            self._update_block_device_mapping(context,
-                    instance_type, instance_uuid, mapping)
+            self._update_block_device_mapping(context, instance_uuid,
+                                              mapping)
 
     def _populate_instance_shutdown_terminate(self, instance, image,
                                               block_device_mapping):
@@ -2519,11 +2534,10 @@ class API(base.Base):
 
         if bdms is None:
             bdms = self.get_instance_bdms(context, instance)
-
-        for bdm in bdms:
-            if (block_device.strip_dev(bdm['device_name']) ==
-                block_device.strip_dev(instance['root_device_name'])):
-                return True
+        
+        boot_device = [bdm for bdm in bdms if bdm['boot_index'] == 0]
+        if boot_device.pop()['source_type'] in ('volume', 'snapshot'):
+            return True
         else:
             return False
 
