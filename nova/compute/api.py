@@ -2137,6 +2137,14 @@ class API(base.Base):
     @check_instance_state(vm_state=[vm_states.ACTIVE, vm_states.STOPPED])
     def rescue(self, context, instance, rescue_password=None):
         """Rescue the given instance."""
+        # TODO(ndipanov): This check can be generalized as a decorator to
+        # check for valid combinations of src and dests - for now check
+        # if it's booted from volume only
+        if not instance['image_ref']:
+            reason = _("Cannot rescue a valume-backed instance")
+            raise exception.InstanceNotRescuable(instance_id=instance['uuid'],
+                                                 reason=reason)
+
         self.update(context,
                     instance,
                     vm_state=vm_states.ACTIVE,
