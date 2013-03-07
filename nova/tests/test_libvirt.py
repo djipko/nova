@@ -2570,7 +2570,7 @@ class LibvirtConnTestCase(test.TestCase):
         self.stubs.Set(conn, 'get_info', fake_get_info)
 
         conn.spawn(self.context, instance, None, [], None)
-        self.assertFalse(self.create_image_called)
+        self.assertTrue(self.create_image_called)
 
         conn.spawn(self.context,
                    instance,
@@ -2578,6 +2578,41 @@ class LibvirtConnTestCase(test.TestCase):
                    [],
                    None)
         self.assertTrue(self.create_image_called)
+
+    def test_spawn_without_image_calls_cache(self):
+        self.cache_called_for_disk = False
+
+        def fake_none(*args, **kwargs):
+            return
+
+        def fake_cache(*args, **kwargs):
+            if kwargs.get('image_id') == 'my_fake_image':
+                self.cache_called_for_disk = True
+
+        def fake_get_info(instance):
+            return {'state': power_state.RUNNING}
+
+        instance_ref = self.test_instance
+        instance_ref['image_ref'] = ''
+        instance = db.instance_create(self.context, instance_ref)
+
+        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+        self.stubs.Set(conn, 'to_xml', fake_none)
+
+        self.stubs.Set(imagebackend.Image, 'cache', fake_cache)
+        self.stubs.Set(conn, '_create_domain_and_network', fake_none)
+        self.stubs.Set(conn, 'get_info', fake_get_info)
+
+        conn.spawn(self.context, instance, None, [], None)
+        self.assertFalse(self.cache_called_for_disk)
+        db.instance_destroy(self.context, instance['uuid'])
+
+        self.cache_called_for_disk = False
+
+        instance_ref['image_ref'] = 'my_fake_image'
+        instance = db.instance_create(self.context, instance_ref)
+        conn.spawn(self.context, instance, None, [], None)
+        self.assertTrue(self.cache_called_for_disk)
 
     def test_create_image_plain(self):
         gotFiles = []
