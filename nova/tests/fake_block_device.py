@@ -14,45 +14,26 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+
 def create_fake_image_bdm(image_ref):
-    """Create a block device mapping for the image"""
+    """Create a block device mapping for the image."""
     return {
-        'source_type' : 'image',
-        'destination_type' : 'local',
-        'uuid' : image_ref,
-        'disk_bus' : None,
-        'device_type' : 'disk',
-        'boot_index' : 0,
-        'volume_size' : 1,
-        'delete_on_termination' : True,
-        'device_name' : None,
+        'source_type': 'image',
+        'destination_type': 'local',
+        'uuid': image_ref,
+        'disk_bus': None,
+        'device_type': 'disk',
+        'boot_index': 0,
+        'volume_size': None,
+        'delete_on_termination': True,
+        'device_name': None,
     }
 
 
 def fake_validate_bdm(*args, **kwargs):
-  pass
+    pass
 
 
 def stub_out_validate_bdm(stubs, compute_api_object):
     stubs.Set(compute_api_object, '_validate_bdm',
-                   fake_validate_bdm)
-    
-
-class FakeBDMModel(object):
-    def __init__(self, values):
-        self.values = values.copy()
-
-    def __getattr__(self, name):
-        """Properly delegate dotted lookups."""
-        if name in self.__dict__['values']:
-            return self.values.get(name)
-        try:
-            return self.__dict__[name]
-        except KeyError:
-            raise AttributeError
-
-    def __getitem__(self, key):
-        return self.values.get(key)
-
-    def iteritems(self):
-        return self.values.iteritems()
+              fake_validate_bdm)

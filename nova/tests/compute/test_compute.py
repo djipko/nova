@@ -185,7 +185,7 @@ class BaseTestCase(test.TestCase):
             for key in instance_types.system_metadata_instance_type_props:
                 sys_meta['instance_type_%s' % key] = inst_type[key]
             return sys_meta
-        
+
         def _create_image_bdm_mapping(context, instance):
             if instance['image_ref']:
                 api_bdm = block_device.create_image_bdm(instance['image_ref'])
@@ -745,8 +745,11 @@ class ComputeTestCase(BaseTestCase):
         self.compute.terminate_instance(self.context, instance=instance)
 
         instances = db.instance_get_all(self.context)
+        bdms = db.block_device_mapping_get_all_by_instance(self.context,
+                                                           instance['uuid'])
         LOG.info(_("After terminating instances: %s"), instances)
         self.assertEqual(len(instances), 0)
+        self.assertEqual(len(bdms), 0)
 
     def test_run_terminate_with_vol_attached(self):
         """Make sure it is possible to  run and terminate instance with volume
@@ -2096,8 +2099,8 @@ class ComputeTestCase(BaseTestCase):
         self.assertEquals(volume['device_name'], '/dev/vdc')
         disk_info = db.block_device_mapping_get_all_by_instance(
             self.context, instance['uuid'])
-        self.assertEquals(len(disk_info), 1)
-        for bdm in disk_info:
+        self.assertEquals(len(disk_info), 2)
+        for bdm in filter(lambda d: d['source_type'] == 'volume', disk_info):
             self.assertEquals(bdm['device_name'], volume['device_name'])
             self.assertEquals(bdm['connection_info'],
                               jsonutils.dumps(connection_info))
@@ -2131,8 +2134,8 @@ class ComputeTestCase(BaseTestCase):
         # assert bdm is unchanged
         disk_info = db.block_device_mapping_get_all_by_instance(
             self.context, instance['uuid'])
-        self.assertEquals(len(disk_info), 1)
-        for bdm in disk_info:
+        self.assertEquals(len(disk_info), 2)
+        for bdm in filter(lambda d: d['source_type'] == 'volume', disk_info):
             self.assertEquals(bdm['device_name'], volume['device_name'])
             cached_connection_info = jsonutils.loads(bdm['connection_info'])
             self.assertEquals(cached_connection_info['data'],
@@ -2169,8 +2172,8 @@ class ComputeTestCase(BaseTestCase):
         # assert volume attached correctly
         disk_info = db.block_device_mapping_get_all_by_instance(
             self.context, instance['uuid'])
-        self.assertEquals(len(disk_info), 1)
-        for bdm in disk_info:
+        self.assertEquals(len(disk_info), 2)
+        for bdm in filter(lambda d: d['source_type'] == 'volume', disk_info):
             self.assertEquals(bdm['connection_info'],
                               jsonutils.dumps(connection_info))
 
@@ -3211,17 +3214,22 @@ class ComputeTestCase(BaseTestCase):
         self.flags(running_deleted_instance_timeout=3600,
                    running_deleted_instance_action='reap')
 
-        bdms = []
+        def expected_bdm(bdm):
+            expected = fake_block_device.create_fake_image_bdm(
+                instance['image_ref'])
+            expected = block_device.bdm_api_to_db_format([expected])[0]
+            self.assertThat(expected, matchers.IsSubDictOf(bdm[0]))
+            return len(bdm) == 1
 
         self.mox.StubOutWithMock(self.compute, "_shutdown_instance")
         self.compute._shutdown_instance(admin_context,
                                         instance,
-                                        bdms).AndReturn(None)
+                                        mox.Func(expected_bdm)).AndReturn(None)
 
         self.mox.StubOutWithMock(self.compute, "_cleanup_volumes")
         self.compute._cleanup_volumes(admin_context,
                                       instance['uuid'],
-                                      bdms).AndReturn(None)
+                                      mox.Func(expected_bdm)).AndReturn(None)
 
         self.mox.ReplayAll()
         self.compute._cleanup_running_deleted_instances(admin_context)
@@ -3854,7 +3862,6 @@ class ComputeTestCase(BaseTestCase):
         self.assertEqual(len(updated_ats), len(set(updated_ats)))
 
 
-
 class ComputeAPITestCase(BaseTestCase):
 
     def setUp(self):
@@ -3886,7 +3893,7 @@ class ComputeAPITestCase(BaseTestCase):
                 raise exception.ImageNotFound(image_id=image_id)
 
         self.fake_show = fake_show
-    
+
     def _run_instance(self, params=None):
         instance = jsonutils.to_primitive(self._create_fake_instance(params))
         instance_uuid = instance['uuid']
@@ -4830,7 +4837,10 @@ class ComputeAPITestCase(BaseTestCase):
         volume_backed_uuid_2 = volume_backed_inst_2['uuid']
 
         def fake_get_instance_bdms(*args, **kwargs):
-            return [{'device_name': '/dev/vda'}]
+            return [{'device_name': '/dev/vda',
+                     'source_type': 'volume',
+                     'destination_type': 'volume',
+                     'boot_index': 0}]
 
         self.stubs.Set(self.compute_api, 'get_instance_bdms',
                        fake_get_instance_bdms)
@@ -5840,17 +5850,16 @@ class ComputeAPITestCase(BaseTestCase):
         ]
 
         # Test the standard case
-        preped_bdm = self.compute_api._prepare_image_block_device_mapping(instance,
-                                                                    mappings_v2)
+        preped_bdm = self.compute_api._prepare_image_block_device_mapping(
+            instance, mappings_v2)
         for got, exp in zip(preped_bdm, mappings_v2):
             self.assertThat(got, matchers.IsSubDictOf(got))
 
         # Test the v1 mappings
-        preped_bdm = self.compute_api._prepare_image_block_device_mapping(instance,
-                                                                    mappings_v1)
+        preped_bdm = self.compute_api._prepare_image_block_device_mapping(
+            instance, mappings_v1)
         for got, exp in zip(preped_bdm, mappings_v2):
             self.assertThat(got, matchers.IsSubDictOf(got))
-
 
     def test_validate_bdm(self):
         def fake_get(self, context, res_id):
@@ -5934,14 +5943,14 @@ class ComputeAPITestCase(BaseTestCase):
                           self.context, instance, mappings)
         mappings[0]['boot_index'] = -1
 
-        CONF.max_local_block_devices = 0
+        self.flags(max_local_block_devices=0)
         self.assertRaises(exception.InvalidBDMLocalsLimit,
                           self.compute_api._validate_bdm,
                           self.context, instance, mappings)
 
     def test_update_block_device_mapping(self):
         instance = self._create_fake_instance(params={'image_ref': ''})
-    
+
         def _parse_db_block_device_mapping(bdm_ref):
             bdm = {}
             for k, v in bdm_ref.iteritems():

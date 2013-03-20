@@ -155,12 +155,20 @@ def _format_block_device_mapping(bdm):
     {'device_name': '...', 'snapshot_id': , ...}
     => BlockDeviceMappingItemType
     """
-    keys = (('deviceName', 'device_name'),
-             ('virtualName', 'virtual_name'))
+    keys = (('deviceName', 'device_name'),)
     item = {}
     for name, k in keys:
         if k in bdm:
             item[name] = bdm[k]
+    if 'virtual_name' in bdm:
+        item['virtualName'] = bdm.get('virtual_name')
+    else:  # bdm v2
+        if bdm.get('source_type') == 'blank':
+            if bdm.get('guest_format') == 'swap':
+                item['virtualName'] = 'swap'
+            else:
+                item['virtualName'] = 'ephemeral'
+
     if bdm.get('no_device'):
         item['noDevice'] = True
     if ('snapshot_id' in bdm) or ('volume_id' in bdm):
@@ -190,6 +198,13 @@ def _format_mappings(properties, result):
 
     block_device_mapping = [_format_block_device_mapping(bdm) for bdm in
                             properties.get('block_device_mapping', [])]
+
+    # NOTE(ndipanov): Enumerate the ephemerals if bdms are v2
+    no_eph_in_mapping = len([eph for eph in mappings
+                             if block_device.is_ephemeral(eph['virtualName'])])
+    for i, ephemeral in enumerate([eph for eph in block_device_mapping
+                                   if eph.get('virtualName') == 'ephemeral']):
+        ephemeral['virtualName'] += str(no_eph_in_mapping + i)
 
     # NOTE(yamahata): overwrite mappings with block_device_mapping
     for bdm in block_device_mapping:
@@ -1308,7 +1323,7 @@ class CloudController(object):
         ec2_bdms = kwargs.get('block_device_mapping', [])
         for bdm in ec2_bdms:
             _parse_block_device_mapping(bdm)
-        
+
         openstack_bdms = block_device.bdm_v1_to_v2(ec2_bdms, image_uuid)
 
         if image_state != 'available':

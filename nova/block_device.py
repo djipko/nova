@@ -145,7 +145,7 @@ def instance_block_mapping(instance, bdms):
     swap = [bdm for bdm in blanks if bdm['guest_format'] == 'swap']
     if swap:
         mappings['swap'] = swap.pop()['device_name']
-        
+
     ephemerals = [bdm for bdm in blanks if bdm['guest_format'] != 'swap']
     if ephemerals:
         for num, eph in enumerate(ephemerals):
@@ -200,8 +200,10 @@ def create_image_bdm(image_ref, boot_index=0):
     image_bdm['uuid'] = image_ref
     image_bdm['delete_on_termination'] = True
     image_bdm['boot_index'] = boot_index
+    image_bdm['device_type'] = 'disk'
+    image_bdm['destination_type'] = 'local'
     return image_bdm
-    
+
 
 def bdm_v1_to_v2(bdms_v1, image_uuid, assign_boot_index=True):
     """Transform the old bdms to the new v2 format.
@@ -260,7 +262,7 @@ def bdm_v1_to_v2(bdms_v1, image_uuid, assign_boot_index=True):
     if assign_boot_index:
         non_boot = [bdm for bdm in bdms_v2 if bdm['source_type'] == 'blank']
         bootable = [bdm for bdm in bdms_v2 if bdm not in non_boot]
-    
+
         for index, bdm in enumerate(bootable):
             bdm['boot_index'] = index
 
@@ -271,9 +273,9 @@ def bdm_v1_to_v2(bdms_v1, image_uuid, assign_boot_index=True):
 
 def bdm_api_to_db_format(block_device_mapping, drop_bootable_image=False):
     preped_bdm = []
-    
+
     for bdm in block_device_mapping:
-        
+
         values = bdm.copy()
 
         source_type = values.get('source_type')
@@ -298,7 +300,7 @@ def bdm_api_to_db_format(block_device_mapping, drop_bootable_image=False):
             values['image_id'] = uuid
 
         del values['uuid']
-        
+
         preped_bdm.append(values)
 
     return preped_bdm

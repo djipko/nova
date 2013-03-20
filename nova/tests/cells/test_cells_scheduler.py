@@ -66,8 +66,7 @@ class CellsSchedulerTestCase(test.TestCase):
                         'security_group': ['default'],
                         'block_device_mapping': [
                             fake_block_device.create_fake_image_bdm(
-                                fake_image_ref)    
-                        ],
+                                fake_image_ref)],
                         'instance_properties': instance_props,
                         'instance_uuids': self.instance_uuids}
 

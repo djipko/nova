@@ -19,8 +19,8 @@ import re
 from sqlalchemy import Column, Integer, MetaData, String, Table
 from sqlalchemy.sql.expression import select
 
-from oslo.config import cfg
 from nova.openstack.common import log as logging
+from oslo.config import cfg
 
 
 CONF = cfg.CONF

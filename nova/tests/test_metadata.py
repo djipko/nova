@@ -188,14 +188,14 @@ class MetadataTestCase(test.TestCase):
                      'device_type': 'disk',
                      'guest_format': 'swap',
                      'boot_index': -1,
-                     'volume_size': 1 },
+                     'volume_size': 1},
                     {'device_name': '/dev/sdb',
                      'source_type': 'blank',
                      'destination_type': 'local',
                      'device_type': 'disk',
                      'guest_format': None,
                      'boot_index': -1,
-                     'volume_size': 1 }]
+                     'volume_size': 1}]
 
         self.stubs.Set(db, 'block_device_mapping_get_all_by_instance',
                        fake_bdm_get)

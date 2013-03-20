@@ -2252,7 +2252,7 @@ class ServersControllerCreateTest(test.TestCase):
         def create(*args, **kwargs):
             # The image volume will be created
             self.assertEqual(len(kwargs['block_device_mapping']), 2)
-            for ref, received  in zip(bdm_v2, kwargs['block_device_mapping']):
+            for ref, received in zip(bdm_v2, kwargs['block_device_mapping']):
                 self.assertThat(ref, matchers.IsSubDictOf(received))
             return old_create(*args, **kwargs)
 
@@ -2290,8 +2290,10 @@ class ServersControllerCreateTest(test.TestCase):
 
         def create(*args, **kwargs):
             self.assertEqual(len(kwargs['block_device_mapping']), 1)
-            self.assertThat(bdm_v2[0],
-                            matchers.IsSubDictOf(kwargs['block_device_mapping'][0]))
+            self.assertThat(
+                    bdm_v2[0],
+                    matchers.IsSubDictOf(kwargs['block_device_mapping'][0])
+            )
             self.assertNotIn('imageRef', kwargs)
             return old_create(*args, **kwargs)
 

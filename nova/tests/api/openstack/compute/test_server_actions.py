@@ -744,6 +744,12 @@ class ServerActionsControllerTest(test.TestCase):
                           req, FAKE_UUID, body)
 
     def test_create_image(self):
+        def is_volume_backed_instance(*args, **kwargs):
+            return False
+
+        self.stubs.Set(compute_api.API, 'is_volume_backed_instance',
+                       is_volume_backed_instance)
+
         body = {
             'createImage': {
                 'name': 'Snapshot 1',
@@ -767,11 +773,16 @@ class ServerActionsControllerTest(test.TestCase):
             body['createImage']['metadata'] = extra_properties
 
         image_service = glance.get_default_image_service()
+        bootable_volume = dict(volume_id=_fake_id('a'),
+                               source_type='volume',
+                               destination_type='volume',
+                               volume_size=1,
+                               device_name='vda',
+                               boot_index=0,
+                               no_device=False,
+                               delete_on_termination=False)
 
-        bdm = [dict(volume_id=_fake_id('a'),
-                    volume_size=1,
-                    device_name='vda',
-                    delete_on_termination=False)]
+        bdm = [bootable_volume]
         props = dict(kernel_id=_fake_id('b'),
                      ramdisk_id=_fake_id('c'),
                      root_device_name='/dev/vda',
@@ -784,13 +795,7 @@ class ServerActionsControllerTest(test.TestCase):
         image_service.create(None, original_image)
 
         def fake_block_device_mapping_get_all_by_instance(context, inst_id):
-            return [dict(volume_id=_fake_id('a'),
-                         virtual_name=None,
-                         volume_size=1,
-                         device_name='vda',
-                         snapshot_id=1,
-                         delete_on_termination=False,
-                         no_device=None)]
+            return [bootable_volume]
 
         self.stubs.Set(db, 'block_device_mapping_get_all_by_instance',
                        fake_block_device_mapping_get_all_by_instance)
@@ -855,6 +860,11 @@ class ServerActionsControllerTest(test.TestCase):
                           req, FAKE_UUID, body)
 
     def test_create_image_with_metadata(self):
+        def is_volume_backed_instance(*args, **kwargs):
+            return False
+
+        self.stubs.Set(compute_api.API, 'is_volume_backed_instance',
+                       is_volume_backed_instance)
         body = {
             'createImage': {
                 'name': 'Snapshot 1',
@@ -920,7 +930,13 @@ class ServerActionsControllerTest(test.TestCase):
             raise exception.InstanceInvalidState(attr='fake_attr',
                 state='fake_state', method='fake_method',
                 instance_uuid='fake')
+
+        def is_volume_backed_instance(*args, **kwargs):
+            return False
+
         self.stubs.Set(compute_api.API, 'snapshot', snapshot)
+        self.stubs.Set(compute_api.API, 'is_volume_backed_instance',
+                       is_volume_backed_instance)
 
         body = {
             "createImage": {

@@ -1063,6 +1063,7 @@ class CloudTestCase(test.TestCase):
                     self.assertThat(d1, matchers.DictMatches(d2))
 
     def _setUpImageSet(self, create_volumes_and_snapshots=False):
+        cfg.CONF.set_override('max_local_block_devices', 10)
         mappings1 = [
             {'device': '/dev/sda1', 'virtual': 'root'},
 
@@ -1079,18 +1080,48 @@ class CloudTestCase(test.TestCase):
             {'device': 'sdc4', 'virtual': 'swap'}]
         block_device_mapping1 = [
             {'device_name': '/dev/sdb1',
-             'snapshot_id': 'ccec42a2-c220-4806-b762-6b12fbb592e3'},
+             'snapshot_id': 'ccec42a2-c220-4806-b762-6b12fbb592e3',
+             'source_type': 'snapshot',
+             'boot_index': -1,
+             'destination_type': 'volume'},
             {'device_name': '/dev/sdb2',
-             'volume_id': 'ccec42a2-c220-4806-b762-6b12fbb592e4'},
-            {'device_name': '/dev/sdb3', 'virtual_name': 'ephemeral5'},
-            {'device_name': '/dev/sdb4', 'no_device': True},
+             'volume_id': 'ccec42a2-c220-4806-b762-6b12fbb592e4',
+             'source_type': 'volume',
+             'boot_index': -1,
+             'destination_type': 'volume'},
+            {'device_name': '/dev/sdb3',
+             'source_type': 'blank',
+             'guest_format': None,
+             'boot_index': -1,
+             'destination_type': 'local'},
+            {'device_name': '/dev/sdb4',
+             'source_type': 'blank',
+             'guest_format': 'swap',
+             'no_device': True,
+             'boot_index': -1,
+             'destination_type': 'local'},
 
             {'device_name': '/dev/sdc1',
-             'snapshot_id': 'ccec42a2-c220-4806-b762-6b12fbb592e5'},
+             'snapshot_id': 'ccec42a2-c220-4806-b762-6b12fbb592e5',
+             'source_type': 'snapshot',
+             'boot_index': -1,
+             'destination_type': 'volume'},
             {'device_name': '/dev/sdc2',
-             'volume_id': 'ccec42a2-c220-4806-b762-6b12fbb592e6'},
-            {'device_name': '/dev/sdc3', 'virtual_name': 'ephemeral6'},
-            {'device_name': '/dev/sdc4', 'no_device': True}]
+             'volume_id': 'ccec42a2-c220-4806-b762-6b12fbb592e6',
+             'source_type': 'volume',
+             'boot_index': -1,
+             'destination_type': 'volume'},
+            {'device_name': '/dev/sdc3',
+             'source_type': 'blank',
+             'guest_format': None,
+             'boot_index': -1,
+             'destination_type': 'local'},
+            {'device_name': '/dev/sdc4',
+             'source_type': 'blank',
+             'guest_format': 'swap',
+             'no_device': True,
+             'boot_index': -1,
+             'destination_type': 'local'}]
         image1 = {
             'id': 'cedef40a-ed67-4d10-800e-17455edce175',
             'name': 'fake_name',
@@ -1104,9 +1135,11 @@ class CloudTestCase(test.TestCase):
                 }
             }
 
+        # An example of an image with the v1 mapping
         mappings2 = [{'device': '/dev/sda1', 'virtual': 'root'}]
-        block_device_mapping2 = [{'device_name': '/dev/sdb1',
-                'snapshot_id': 'ccec42a2-c220-4806-b762-6b12fbb592e7'}]
+        block_device_mapping2 = [
+            {'device_name': '/dev/sdb1',
+             'snapshot_id': 'ccec42a2-c220-4806-b762-6b12fbb592e7'}]
         image2 = {
             'id': '76fa36fc-c930-4bf3-8c8a-ea2a2420deb6',
             'name': 'fake_name',
@@ -1913,8 +1946,11 @@ class CloudTestCase(test.TestCase):
 
         def fake_show(meh, context, id):
             bdm = [dict(snapshot_id=snapshots[0],
+                        source_type='snapshot',
+                        destination_type='volume',
                         volume_size=1,
                         device_name='sda1',
+                        boot_index=0,
                         delete_on_termination=False)]
             props = dict(kernel_id='cedef40a-ed67-4d10-800e-17455edce175',
                          ramdisk_id='76fa36fc-c930-4bf3-8c8a-ea2a2420deb6',
@@ -1932,7 +1968,9 @@ class CloudTestCase(test.TestCase):
             return [dict(id=1,
                          snapshot_id=snapshots[0],
                          volume_id=volumes[0],
-                         virtual_name=None,
+                         source_type='snapshot',
+                         destination_type='volume',
+                         boot_index=0,
                          volume_size=1,
                          device_name='sda1',
                          delete_on_termination=False,
@@ -2001,12 +2039,13 @@ class CloudTestCase(test.TestCase):
         ec2_instance_id = self._run_instance(**kwargs)
 
         def fake_block_device_mapping_get_all_by_instance(context, inst_id):
-            return [dict(snapshot_id=snapshots[0],
-                         volume_id=volumes[0],
-                         virtual_name=None,
+            return [dict(image_id='ami-1',
+                         source_type='image',
+                         destination_type='local',
+                         boot_index=0,
                          volume_size=1,
                          device_name='vda',
-                         delete_on_termination=False,
+                         delete_on_termination=True,
                          no_device=None)]
 
         self.stubs.Set(db, 'block_device_mapping_get_all_by_instance',

@@ -104,9 +104,6 @@ def make_server(elem, detailed=False):
 server_nsmap = {None: xmlutil.XMLNS_V11, 'atom': xmlutil.XMLNS_ATOM}
 
 
-
-
-
 class ServerTemplate(xmlutil.TemplateBuilder):
     def construct(self):
         root = xmlutil.TemplateElement('server', selector='server')

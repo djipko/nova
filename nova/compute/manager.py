@@ -679,8 +679,7 @@ class ComputeManager(manager.SchedulerDependentManager):
                     swap = {'device_name': device_name,
                             'swap_size': bdm['volume_size']}
                 else:  # Ephemeral
-                    eph = {'virtual_name': virtual_name,
-                           'device_name': device_name,
+                    eph = {'device_name': device_name,
                            'size': bdm['volume_size']}
                     ephemerals.append(eph)
                 continue
@@ -722,6 +721,7 @@ class ComputeManager(manager.SchedulerDependentManager):
 
         for num, eph in enumerate(ephemerals):
             eph['num'] = num
+            eph['virtual_name'] = 'ephemeral' + str(num)
 
         block_device_info = {
             'root_device_name': instance['root_device_name'],
@@ -1278,7 +1278,8 @@ class ComputeManager(manager.SchedulerDependentManager):
         elevated = context.elevated()
         # NOTE(danms): remove this compatibility in the future
         if not bdms:
-            bdms = self._get_instance_volume_bdms(context, instance)
+            bdms = self.conductor_api.block_device_mapping_get_all_by_instance(
+                context, instance)
 
         @lockutils.synchronized(instance['uuid'], 'nova-')
         def do_terminate_instance(instance, bdms):

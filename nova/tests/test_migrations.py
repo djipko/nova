@@ -934,7 +934,7 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
                     execute().\
                     fetchall()
         self.assertEqual(len(rows), 1)
- 
+
     def _pre_upgrade_159(self, engine):
         data = {
             'provider_fw_rules':
@@ -1066,7 +1066,7 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
             engine.execute(block_device.insert(), fake_bdm)
 
         return fake_instances, fake_bdms
-    
+
     def _check_161(self, engine, data):
         block_device = get_table(engine, 'block_device_mapping')
 

@@ -127,7 +127,7 @@ class BlockDeviceTestCase(test.TestCase):
         _assert_volume_in_mapping('sdf', True)
         _assert_volume_in_mapping('sdg', False)
         _assert_volume_in_mapping('sdh1', False)
-    
+
     def test_bdm_api_to_db_format(self):
         mappings = [
             {'device_name': '/dev/sdb1',
@@ -156,11 +156,11 @@ class BlockDeviceTestCase(test.TestCase):
         preped_bdm.sort()
         expected_result.sort()
         self.assertThat(preped_bdm, matchers.DictListMatches(expected_result))
-        
-        # Now test with image mappings that have a root
-        mappings = [{'source_type': 'image', 'uuid': 'faka_image', 'boot_index': 0}]
 
-        preped_bdm = block_device.bdm_api_to_db_format(mappings,
-                                                       drop_bootable_image=True)
+        # Now test with image mappings that have a root
+        mappings = [{'source_type': 'image',
+                     'uuid': 'faka_image', 'boot_index': 0}]
+
+        preped_bdm = block_device.bdm_api_to_db_format(
+                mappings, drop_bootable_image=True)
         self.assertThat(preped_bdm, matchers.DictListMatches([]))
-        

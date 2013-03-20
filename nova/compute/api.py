@@ -22,7 +22,6 @@
 networking and storage of VMs, and compute hosts on which they run)."""
 
 import base64
-import copy
 import functools
 import re
 import string
@@ -621,7 +620,8 @@ class API(base.Base):
                 options = base_options.copy()
                 instance = self.create_db_entry_for_new_instance(
                         context, instance_type, image, options,
-                        security_groups, block_device_mapping, num_instances, i)
+                        security_groups, block_device_mapping,
+                        num_instances, i)
 
                 instances.append(instance)
                 instance_uuids.append(instance['uuid'])
@@ -749,13 +749,13 @@ class API(base.Base):
     def _prepare_image_block_device_mapping(self, instance, image_bdms):
         """This will prepare the block_device_mapping stored with
         the image for use with the current block device format.
-        
+
         Image has block device mapping only if it was the result of
         snapshoting a volume based instance (see method
         snapshot_volume_backed) so we need to make sure we don't boot
         from the image instead of the intended volume.
         """
-        
+
         # Image block device mapping might be in the old format
         v2_bdms = len(filter(lambda bdm: 'source_type' in bdm, image_bdms))
         assert v2_bdms in (0, len(image_bdms))
@@ -1701,10 +1701,14 @@ class API(base.Base):
 
         mapping = []
         for bdm in bdms:
-            if bdm['no_device']:
+            m = dict(bdm.iteritems())
+
+            if m['no_device']:
                 continue
 
-            m = dict(bdm.iteritems())
+            # NOTE(ndipanov): Skip the image BDM if it's there
+            if m.get('image_id') == instance['image_ref']:
+                continue
 
             volume_id = m.get('volume_id')
             if volume_id:
@@ -1716,10 +1720,11 @@ class API(base.Base):
                 name = _('snapshot for %s') % image_meta['name']
                 snapshot = self.volume_api.create_snapshot_force(
                     context, volume, name, volume['display_description'])
-                bdm['snapshot_id'] = snapshot['id']
-                del bdm['volume_id']
+                m['snapshot_id'] = snapshot['id']
+                m['source_type'] = 'snapshot'
+                del m['volume_id']
 
-            mapping.append(bdm)
+            mapping.append(m)
 
         for m in block_device.mappings_prepend_dev(properties.get('mappings',
                                                                   [])):
@@ -2534,7 +2539,7 @@ class API(base.Base):
 
         if bdms is None:
             bdms = self.get_instance_bdms(context, instance)
-        
+
         boot_device = [bdm for bdm in bdms if bdm['boot_index'] == 0]
         if boot_device.pop()['source_type'] in ('volume', 'snapshot'):
             return True
