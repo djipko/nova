@@ -604,7 +604,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         Currently this is just set in the flags for each compute host.
 
         """
-        # TODO(mdragon): perhaps make this variable by console_type?
+        #TODO(mdragon): perhaps make this variable by console_type?
         return rpc.queue_get_for(context,
                                  CONF.console_topic,
                                  CONF.console_host)
