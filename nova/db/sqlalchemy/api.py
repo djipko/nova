@@ -2935,6 +2935,7 @@ def _block_device_mapping_get_query(context, session=None):
 
 @require_context
 def block_device_mapping_create(context, values):
+    values = block_device.bdm_get_values(values)
     bdm_ref = models.BlockDeviceMapping()
     bdm_ref.update(values)
     bdm_ref.save()
@@ -2942,6 +2943,7 @@ def block_device_mapping_create(context, values):
 
 @require_context
 def block_device_mapping_update(context, bdm_id, values):
+    values = block_device.bdm_get_values(values)
     _block_device_mapping_get_query(context).\
             filter_by(id=bdm_id).\
             update(values)
@@ -2949,6 +2951,7 @@ def block_device_mapping_update(context, bdm_id, values):
 
 @require_context
 def block_device_mapping_update_or_create(context, values):
+    values = block_device.bdm_get_values(values)
     session = get_session()
     with session.begin():
         result = _block_device_mapping_get_query(context, session=session).\
@@ -2978,9 +2981,10 @@ def block_device_mapping_update_or_create(context, values):
 
 @require_context
 def block_device_mapping_get_all_by_instance(context, instance_uuid):
-    return _block_device_mapping_get_query(context).\
-                 filter_by(instance_uuid=instance_uuid).\
-                 all()
+    return [block_device.BlockDeviceDict(bdm) for bdm in
+            _block_device_mapping_get_query(context).
+                 filter_by(instance_uuid=instance_uuid).
+                 all()]
 
 
 @require_context
