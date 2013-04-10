@@ -20,6 +20,7 @@ Tests for Block Device utility functions.
 """
 
 from nova import block_device
+from nova import exception
 from nova import test
 
 
@@ -126,3 +127,77 @@ class BlockDeviceTestCase(test.TestCase):
         _assert_volume_in_mapping('sdf', True)
         _assert_volume_in_mapping('sdg', False)
         _assert_volume_in_mapping('sdh1', False)
+
+
+class BlockDeviceDictTestCase(test.TestCase):
+    def test_basic_behaviour(self):
+        fake_handlers = {"one": block_device.NoOpHandler("one"),
+                         "two": block_device.NoOpHandler("two")}
+
+        self.stubs.Set(block_device, "v1_field_handlers",
+                       fake_handlers)
+
+        test_dict = block_device.BlockDeviceDict(
+            {"one": 1, "two": 2, "three": 3})
+
+        self.assertIn("one", test_dict)
+        self.assertEquals(test_dict["one"], 1)
+        self.assertEquals(test_dict.get("two"), 2)
+        self.assertRaises(KeyError, lambda: test_dict["three"])
+
+        del test_dict["one"]
+        self.assertNotIn("one", test_dict)
+        self.assertRaises(KeyError, lambda: test_dict["one"])
+
+        test_dict["one"] = 5
+        self.assertEquals(test_dict["one"], 5)
+
+        self.assertEquals(len(test_dict), 2)
+        itemlist = list(test_dict.iteritems())
+        self.assertIn(("one", 5), itemlist)
+        self.assertIn(("two", 2), itemlist)
+
+        def assign(key, val):
+            test_dict[key] = val
+
+        self.assertRaises(exception.InvalidBDMField, assign, "three", 6)
+        self.assertRaises(exception.InvalidBDMField, assign, "lame", "fake")
+
+        test_dict.update({"one": 1, "two": 5})
+        self.assertEquals(test_dict["one"], 1)
+        self.assertEquals(test_dict["two"], 5)
+
+    def test_handler_delegation(self):
+        class AddHandler(block_device.ItemHandlerBase):
+            def get(self, d):
+                return d["one"] + d["two"]
+
+            def set(self, d, val):
+                d["one"] = d["two"] = val / 2
+                super(AddHandler, self).set(d, val)
+
+        fake_handlers = {"three": AddHandler("three")}
+        self.stubs.Set(block_device, "v1_field_handlers",
+                       fake_handlers)
+
+        test_dict = block_device.BlockDeviceDict({"one": 1, "two": 2})
+
+        self.assertEquals(test_dict["three"], 3)
+
+        test_dict["three"] = 6
+        self.assertEquals(test_dict["three"], 6)
+        self.assertEquals(test_dict._real_dict["one"], 3)
+        self.assertEquals(test_dict._real_dict["two"], 3)
+
+        del test_dict["three"]
+        self.assertFalse(test_dict)
+
+        test_dict["three"] = 4
+        self.assertEquals(test_dict.get("three"), 4)
+        self.assertEquals(test_dict._real_dict["one"], 2)
+        self.assertEquals(test_dict._real_dict["two"], 2)
+
+        # Test the situation when we don't have all that is
+        # needed to compute the property - we should not see it
+        test_dict = block_device.BlockDeviceDict({"one": 1})
+        self.assertFalse(test_dict)

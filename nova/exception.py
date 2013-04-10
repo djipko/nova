@@ -240,6 +240,11 @@ class InvalidBDMVolume(InvalidBDM):
                 "failed to get volume %(id)s.")
 
 
+class InvalidBDMField(InvalidBDM):
+    message = _("Attempting to set an unknown "
+                "block device property: %(key)s.")
+
+
 class VolumeUnattached(Invalid):
     message = _("Volume %(volume_id)s is not attached to anything")
 

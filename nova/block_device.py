@@ -15,8 +15,12 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import collections
+import copy
 import re
 
+
+from nova import exception
 from nova.openstack.common import log as logging
 from nova.virt import driver
 
@@ -166,3 +170,108 @@ def volume_in_mapping(mount_device, block_device_info):
 
     LOG.debug(_("block_device_list %s"), block_device_list)
     return strip_dev(mount_device) in block_device_list
+
+
+bdm_v1_field_names = ["id", "instance_uuid", "device_name",
+                      "delete_on_termination", "virtual_name",
+                      "snapshot_id", "volume_id", "volume_size",
+                      "no_device", "connection_info"]
+
+
+class ItemHandlerBase(object):
+    def __init__(self, key):
+        self._key = key
+        self.deleted = False
+
+    def get(self, d):
+        return d[self._key]
+
+    def set(self, d, val):
+        self.deleted = False
+
+    def delete(self, d):
+        self.deleted = True
+
+
+class NoOpHandler(ItemHandlerBase):
+    def set(self, d, val):
+        d[self._key] = val
+        super(NoOpHandler, self).set(d, val)
+
+
+v1_field_handlers = dict((field, NoOpHandler(field))
+                        for field in bdm_v1_field_names)
+
+
+class BlockDeviceDict(collections.MutableMapping):
+    """Dict like class that will allow us to hide the new block device
+    database structure from the code that is not ready for it.
+    It will always act like it has the same keys as v1_field_handlers, that
+    is - the old database structure.
+
+    Once initialized with the v2 fields - it will delegate all attempts
+    to work with v1 fields to the handler assigned to the field in
+    _v1_field_handlers dictionary, which will calculate it based on v2 fields
+    the class was initialised with.
+
+    Handlers are supposed to implement three methods get, set and delete
+    which all take the original dict as a parameter. These methods should
+    raise a KeyError should something go wrong. Handlers should also
+    expose a 'deleted' attribute for consistent behaviour.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self._real_dict = dict(*args, **kwargs)
+        self._fields = copy.deepcopy(v1_field_handlers)
+        for _, fld in self._fields.iteritems():
+            try:
+                fld.get(self._real_dict)
+            except KeyError:
+                fld.deleted = True
+
+    def __getitem__(self, key):
+        handler = self._fields.get(key)
+        if handler:
+            if handler.deleted:
+                raise KeyError(key)
+            # Attempt to compute the field
+            return handler.get(self._real_dict)
+        else:
+            raise KeyError(key)
+
+    def __setitem__(self, key, val):
+        if key in self._fields:
+            self._fields[key].set(self._real_dict, val)
+        else:
+            # NOTE (ndipanov): This is not a valid situation
+            # as it means an attempt to add an invalid field
+            # to a bdm dict. Code that is "in the know" should
+            # manipulate _real_dict. This is a nice to have
+            # precaution
+            raise exception.InvalidBDMField(key=key)
+
+    def __delitem__(self, key):
+        handler = self._fields.get(key)
+        if handler:
+            if handler.deleted:
+                raise KeyError(key)
+            handler.delete(self._real_dict)
+        else:
+            del self._real_dict[key]
+
+    def __len__(self):
+        # NOTE(ndipanov): len will act as the original dict, and we'll assume
+        # new code is "in the know" and will access _real_dict for the
+        # time being.
+        return len([fld for fld in self._fields.values() if not fld.deleted])
+
+    def __iter__(self):
+        return (key for key, fld in self._fields.iteritems()
+                if not fld.deleted)
+
+
+def bdm_get_values(bdm_dict):
+    try:
+        return bdm_dict._real_dict
+    except AttributeError:
+        return bdm_dict
