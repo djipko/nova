@@ -22,6 +22,7 @@ Tests for Block Device utility functions.
 from nova import block_device
 from nova import exception
 from nova import test
+from nova.tests import matchers
 
 
 class BlockDeviceTestCase(test.TestCase):
@@ -127,6 +128,43 @@ class BlockDeviceTestCase(test.TestCase):
         _assert_volume_in_mapping('sdf', True)
         _assert_volume_in_mapping('sdg', False)
         _assert_volume_in_mapping('sdh1', False)
+
+    def test_bdm_api_to_db_format(self):
+        mappings = [
+            {'device_name': '/dev/sdb1',
+             'source_type': 'blank'},
+            {'device_name': '/dev/sda1',
+             'source_type': 'volume',
+             'uuid': '55555555-aaaa-bbbb-cccc-555555555555'},
+            {'device_name': '/dev/sda2',
+             'source_type': 'snapshot',
+             'uuid': '66666666-aaaa-bbbb-cccc-555555555555'}
+        ]
+
+        preped_bdm = block_device.bdm_api_to_db_format(mappings)
+
+        expected_result = [
+            {'device_name': '/dev/sdb1',
+                'source_type': 'blank'},
+            {'device_name': '/dev/sda1',
+            'source_type': 'volume',
+            'volume_id': '55555555-aaaa-bbbb-cccc-555555555555'},
+            {'device_name': '/dev/sda2',
+             'source_type': 'snapshot',
+             'snapshot_id': '66666666-aaaa-bbbb-cccc-555555555555'}
+        ]
+
+        preped_bdm.sort()
+        expected_result.sort()
+        self.assertThat(preped_bdm, matchers.DictListMatches(expected_result))
+
+        # Now test with image mappings that have a root
+        mappings = [{'source_type': 'image',
+                     'uuid': 'faka_image', 'boot_index': 0}]
+
+        preped_bdm = block_device.bdm_api_to_db_format(
+                mappings, drop_bootable_image=True)
+        self.assertThat(preped_bdm, matchers.DictListMatches([]))
 
 
 class BlockDeviceDictTestCase(test.TestCase):

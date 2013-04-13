@@ -27,6 +27,7 @@ from nova.api.openstack.compute import ips
 from nova.api.openstack.compute.views import servers as views_servers
 from nova.api.openstack import wsgi
 from nova.api.openstack import xmlutil
+from nova import block_device
 from nova import compute
 from nova.compute import instance_types
 from nova import exception
@@ -216,6 +217,11 @@ class CommonDeserializer(wsgi.MetadataXMLDeserializer):
         block_device_mapping = self._extract_block_device_mapping(server_node)
         if block_device_mapping is not None:
             server["block_device_mapping"] = block_device_mapping
+
+        block_device_mapping_v2 = self._extract_block_device_mapping_v2(
+            server_node)
+        if block_device_mapping_v2 is not None:
+            server["block_device_mapping_v2"] = block_device_mapping_v2
 
         # NOTE(vish): Support this incorrect version because it was in the code
         #             base for a while and we don't want to accidentally break
@@ -727,6 +733,55 @@ class Controller(wsgi.Controller):
         if not utils.is_valid_ipv6(address):
             expl = _('accessIPv6 is not proper IPv6 format')
             raise exc.HTTPBadRequest(explanation=expl)
+
+    def _get_bdms_v2(self, block_device_mapping):
+        """Do only basic bdm validations."""
+
+        attributes = block_device.bdm_v2_attrs
+        needed_keys = set(['source_type'])
+
+        validated_bdms = []
+
+        for bdm in block_device_mapping:
+
+            keys = set(bdm.iterkeys())
+
+            if not needed_keys <= keys:
+                missing_keys = needed_keys - keys
+                expl = (_("Missing one of the required fields in one "
+                        "of the block device definitions: %(missing_fields)s")
+                        % {"missing_fields": ", ".join(missing_keys)})
+                raise exc.HTTPBadRequest(explanation=expl)
+
+            # make sure we have the expected fields
+            if not keys <= attributes:
+                invalid_keys = keys - attributes
+                expl = (_("Invalid fields found in one of the "
+                        "block device definitions: %(invalid_fields)s")
+                        % {"invalid_fields": ", ".join(invalid_keys)})
+                raise exc.HTTPBadRequest(explanation=expl)
+
+            # Make sure boolean flags are treated as such
+            if 'delete_on_termination' in bdm:
+                bdm['delete_on_termination'] = utils.bool_from_str(
+                        bdm['delete_on_termination'])
+
+            # Make sure that the integer keys are valid
+            if bdm.get('boot_index'):
+                try:
+                    bdm['boot_index'] = int(bdm['boot_index'])
+                except ValueError:
+                    expl = _(
+                        "Invalid 'size' field found in device definitions")
+                    raise exc.HTTPBadRequest(explanation=expl)
+
+            # Make sure that device_name isn't too long
+            if bdm.get('device_name'):
+                self._validate_device_name(bdm['device_name'])
+
+            validated_bdms.append(bdm)
+
+        return validated_bdms
 
     @wsgi.serializers(xml=ServerTemplate)
     def show(self, req, id):

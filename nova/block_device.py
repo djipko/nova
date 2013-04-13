@@ -17,6 +17,7 @@
 
 import collections
 import copy
+import itertools
 import re
 
 
@@ -31,6 +32,15 @@ _DEFAULT_MAPPINGS = {'ami': 'sda1',
                      'ephemeral0': 'sda2',
                      'root': DEFAULT_ROOT_DEV_NAME,
                      'swap': 'sda3'}
+
+
+bdm_v1_attrs = set(["volume_id", "snapshot_id", "device_name",
+                  "virtual_name", "volume_size"])
+
+
+bdm_v2_attrs = set(['source_type', 'destination_type', 'uuid', 'guest_format',
+                     'disk_bus', 'device_type', 'boot_index', 'volume_size',
+                     'delete_on_termination', 'device_name'])
 
 
 def properties_root_device_name(properties):
@@ -275,3 +285,128 @@ def bdm_get_values(bdm_dict):
         return bdm_dict._real_dict
     except AttributeError:
         return bdm_dict
+
+
+def _blank_api_bdm():
+    """Create a blank block device mapping dict that compute
+    API methods work with - the db structure is different
+    """
+    blank = dict(zip(bdm_v2_attrs, itertools.repeat(None)))
+    blank['boot_index'] = -1
+    return blank
+
+
+def create_image_bdm(image_ref, boot_index=0):
+    """Create a block device dict based on the image_ref
+    This is usefull in the API layer to keep the compatibility
+    with having an image_ref as a field in the instance requests
+    """
+    image_bdm = _blank_api_bdm()
+    image_bdm['source_type'] = 'image'
+    image_bdm['uuid'] = image_ref
+    image_bdm['delete_on_termination'] = True
+    image_bdm['boot_index'] = boot_index
+    image_bdm['device_type'] = 'disk'
+    image_bdm['destination_type'] = 'local'
+    return image_bdm
+
+
+def bdm_v1_to_v2(bdms_v1, image_uuid, assign_boot_index=True):
+    """Transform the old bdms to the new v2 format.
+    Default some fields as necessary.
+    """
+    bdms_v2 = []
+    for bdm in bdms_v1:
+
+        bdm_v2 = _blank_api_bdm()
+
+        virt_name = bdm.get('virt_name')
+        volume_size = bdm.get('volume_size')
+
+        if is_swap_or_ephemeral(virt_name):
+            bdm_v2['source_type'] = 'blank'
+            bdm_v2['volume_size'] = bdm.get('volume_size', 0)
+            bdm_v2['delete_on_termination'] = True
+
+            if virt_name == 'swap':
+                bdm_v2['guest_format'] = 'swap'
+
+            bdms_v2.append(bdm_v2)
+
+        elif bdm.get('snapshot_id'):
+            bdm_v2['source_type'] = 'snapshot'
+            bdm_v2['destination_type'] = 'volume'
+            bdm_v2['uuid'] = bdm['snapshot_id']
+            if volume_size:
+                bdm_v2['volume_size'] = volume_size
+            bdm_v2['device_name'] = bdm.get('device_name')
+            bdm_v2['delete_on_termination'] = bdm.get(
+                'delete_on_termination', True)
+
+            bdms_v2.append(bdm_v2)
+
+        elif bdm.get('volume_id'):
+            bdm_v2['source_type'] = 'volume'
+            bdm_v2['destination_type'] = 'volume'
+            bdm_v2['uuid'] = bdm['volume_id']
+            if volume_size:
+                bdm_v2['volum_size'] = volume_size
+            bdm_v2['device_name'] = bdm.get('device_name')
+            bdm_v2['delete_on_termination'] = bdm.get(
+                'delete_on_termination', True)
+
+            bdms_v2.append(bdm_v2)
+        else:  # Log a warning that the bdm is not as expected
+            LOG.warn(_("Got an unexpected block device "
+                       "that cannot be converted to v2 format"))
+
+    if image_uuid:
+        image_bdm = create_image_bdm(image_uuid)
+        bdms_v2 = [image_bdm] + bdms_v2
+
+    # Decide boot sequences:
+    if assign_boot_index:
+        non_boot = [bdm for bdm in bdms_v2 if bdm['source_type'] == 'blank']
+        bootable = [bdm for bdm in bdms_v2 if bdm not in non_boot]
+
+        for index, bdm in enumerate(bootable):
+            bdm['boot_index'] = index
+
+        return bootable + non_boot
+    else:
+        return bdms_v2
+
+
+def bdm_api_to_db_format(block_device_mapping, drop_bootable_image=False):
+    preped_bdm = []
+
+    for bdm in block_device_mapping:
+
+        values = bdm.copy()
+
+        source_type = values.get('source_type')
+        uuid = values.get('uuid')
+
+        if source_type not in ('volume', 'snapshot', 'image'):
+            preped_bdm.append(values)
+            continue
+
+        if source_type == 'volume':
+            values['volume_id'] = uuid
+        elif source_type == 'snapshot':
+            values['snapshot_id'] = uuid
+        elif source_type == 'image':
+            # NOTE (ndipanov): Drop the bootable image if
+            # there is a bootable vol in bdm supplied in the image.
+            # This can happen only if bdm _v1 is used for starting
+            # an instance created from a snapshot.
+            if (drop_bootable_image and
+                values.get('boot_index') == 0):
+                continue
+            values['image_id'] = uuid
+
+        del values['uuid']
+
+        preped_bdm.append(values)
+
+    return preped_bdm
