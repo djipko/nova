@@ -1313,6 +1313,14 @@ class CloudController(object):
                                                             ramdisk['id'])
         for bdm in kwargs.get('block_device_mapping', []):
             _parse_block_device_mapping(bdm)
+        
+
+        block_device_mapping=kwargs.get('block_device_mapping', [])
+        block_device_mapping = block_device.bdm_v1_to_v2(
+            block_device_mapping, None)
+        block_device_mapping = [block_device.BlockDeviceDict(bdm)
+                                for bdm in block_device_mapping]
+
 
         image = self._get_image(context, kwargs['image_id'])
         image_uuid = ec2utils.id_to_glance_id(context, image['id'])
@@ -1338,7 +1346,7 @@ class CloudController(object):
             security_group=kwargs.get('security_group'),
             availability_zone=kwargs.get('placement', {}).get(
                                   'availability_zone'),
-            block_device_mapping=kwargs.get('block_device_mapping', {}))
+            block_device_mapping=block_device_mapping)
         return self._format_run_instances(context, resv_id)
 
     def _ec2_ids_to_instances(self, context, instance_id):

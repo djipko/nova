@@ -883,6 +883,10 @@ class Controller(wsgi.Controller):
                 if 'delete_on_termination' in bdm:
                     bdm['delete_on_termination'] = utils.bool_from_str(
                         bdm['delete_on_termination'])
+            block_device_mapping = block_device.bdm_v1_to_v2(
+                block_device_mapping, None)
+            block_device_mapping = [block_device.BlockDeviceDict(bdm)
+                                    for bdm in block_device_mapping]
 
         ret_resv_id = False
         # min_count and max_count are optional.  If they exist, they may come
