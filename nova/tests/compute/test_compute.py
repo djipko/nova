@@ -31,6 +31,7 @@ import mox
 from oslo.config import cfg
 
 import nova
+from nova import block_device
 from nova import compute
 from nova.compute import api as compute_api
 from nova.compute import flavors
@@ -549,7 +550,8 @@ class ComputeVolumeTestCase(BaseTestCase):
             block_device_mapping = [{
                 'id': 1,
                 'no_device': None,
-                'virtual_name': None,
+                'source_type': 'volume',
+                'destination_type': 'volume',
                 'snapshot_id': None,
                 'volume_id': self.volume_id,
                 'device_name': 'vda',
@@ -5669,6 +5671,8 @@ class ComputeAPITestCase(BaseTestCase):
 
         def fake_get_instance_bdms(*args, **kwargs):
             return [{'device_name': '/dev/vda',
+                     'source_type': 'volume',
+                     'destination_type': 'volume',
                      'volume_id':'bf0b6b00-a20c-11e2-9e96-0800200c9a66'}]
 
         self.stubs.Set(self.compute_api, 'get_instance_bdms',
@@ -6705,12 +6709,14 @@ class ComputeAPITestCase(BaseTestCase):
             self.context, instance_type, instance['uuid'], mappings)
 
         bdms = [self._parse_db_block_device_mapping(bdm_ref)
-                for bdm_ref in db.block_device_mapping_get_all_by_instance(
-                    self.context, instance['uuid'])]
+                for bdm_ref in block_device.legacy_mapping(
+                        db.block_device_mapping_get_all_by_instance(
+                            self.context, instance['uuid']))]
         expected_result = [
             {'virtual_name': 'swap', 'device_name': '/dev/sdb1',
-             'volume_size': swap_size},
-            {'virtual_name': 'ephemeral0', 'device_name': '/dev/sdc1'},
+             'volume_size': swap_size, 'delete_on_termination': True},
+            {'virtual_name': 'ephemeral0', 'device_name': '/dev/sdc1',
+             'delete_on_termination': True},
 
             # NOTE(yamahata): ATM only ephemeral0 is supported.
             #                 they're ignored for now
@@ -6725,21 +6731,23 @@ class ComputeAPITestCase(BaseTestCase):
             self.context, flavors.get_default_instance_type(),
             instance['uuid'], block_device_mapping)
         bdms = [self._parse_db_block_device_mapping(bdm_ref)
-                for bdm_ref in db.block_device_mapping_get_all_by_instance(
-                    self.context, instance['uuid'])]
+                for bdm_ref in block_device.legacy_mapping(
+                    db.block_device_mapping_get_all_by_instance(
+                        self.context, instance['uuid']))]
         expected_result = [
             {'snapshot_id': '00000000-aaaa-bbbb-cccc-000000000000',
                'device_name': '/dev/sda1'},
 
             {'virtual_name': 'swap', 'device_name': '/dev/sdb1',
-             'volume_size': swap_size},
+             'volume_size': swap_size, 'delete_on_termination': True},
             {'snapshot_id': '11111111-aaaa-bbbb-cccc-111111111111',
                'device_name': '/dev/sdb2'},
             {'snapshot_id': '22222222-aaaa-bbbb-cccc-222222222222',
                 'device_name': '/dev/sdb3'},
             {'no_device': True, 'device_name': '/dev/sdb4'},
 
-            {'virtual_name': 'ephemeral0', 'device_name': '/dev/sdc1'},
+            {'virtual_name': 'ephemeral0', 'device_name': '/dev/sdc1',
+             'delete_on_termination': True},
             {'snapshot_id': '33333333-aaaa-bbbb-cccc-333333333333',
                 'device_name': '/dev/sdc2'},
             {'snapshot_id': '44444444-aaaa-bbbb-cccc-444444444444',
@@ -6762,6 +6770,51 @@ class ComputeAPITestCase(BaseTestCase):
             db.block_device_mapping_destroy(self.context, bdm['id'])
         instance = db.instance_get_by_uuid(self.context, instance['uuid'])
         self.compute.terminate_instance(self.context, instance)
+
+    def test_populate_instance_for_bdm(self):
+        # Test that the image bdm is created
+        instance_type = {'swap': 1}
+        instance = self._create_fake_instance(
+            {'root_device_name': 'vda'}
+        )
+        image = {'uuid': 'fake_image'}
+        fake_bdms = [{'device_name': '/dev/vda',
+                      'snapshot_id': '33333333-aaaa-bbbb-cccc-333333333333',
+                      'delete_on_termination': False}]
+
+        # Has an image but no bdms
+        self.compute_api._populate_instance_for_bdm(self.context,
+                                                    instance,
+                                                    instance_type,
+                                                    image, [])
+        bdms = db.block_device_mapping_get_all_by_instance(
+            self.context, instance['uuid'])
+        self.assertEqual(len(bdms), 1)
+        for bdm in bdms:
+            db.block_device_mapping_destroy(self.context, bdm['id'])
+
+        # Has an image and is volume backed - legacy style
+        self.compute_api._populate_instance_for_bdm(self.context,
+                                                    instance,
+                                                    instance_type,
+                                                    image, fake_bdms)
+        bdms = db.block_device_mapping_get_all_by_instance(
+            self.context, instance['uuid'])
+        self.assertEqual(len(bdms), 1)
+        for bdm in bdms:
+            db.block_device_mapping_destroy(self.context, bdm['id'])
+
+        # Is volume backed and has no image
+        instance['image_ref'] = ''
+        self.compute_api._populate_instance_for_bdm(self.context,
+                                                    instance,
+                                                    instance_type,
+                                                    image, fake_bdms)
+        bdms = db.block_device_mapping_get_all_by_instance(
+            self.context, instance['uuid'])
+        self.assertEqual(len(bdms), 1)
+        for bdm in bdms:
+            db.block_device_mapping_destroy(self.context, bdm['id'])
 
     def test_volume_size(self):
         ephemeral_size = 2
@@ -6927,6 +6980,8 @@ class ComputeAPITestCase(BaseTestCase):
 
         def fake_get_instance_bdms(*args, **kwargs):
             return [{'device_name': '/dev/vda',
+                     'source_type': 'volume',
+                     'destination_type': 'volume',
                      'volume_id':'bf0b6b00-a20c-11e2-9e96-0800200c9a66'}]
 
         self.stubs.Set(self.compute_api, 'get_instance_bdms',

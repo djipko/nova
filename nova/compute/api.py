@@ -795,8 +795,9 @@ class API(base.Base):
                                                           values)
 
     def _validate_bdm(self, context, instance):
-        for bdm in self.db.block_device_mapping_get_all_by_instance(
-                context, instance['uuid']):
+        for bdm in block_device.legacy_mapping(
+                    self.db.block_device_mapping_get_all_by_instance(
+                    context, instance['uuid'])):
             # NOTE(vish): For now, just make sure the volumes are accessible.
             # Additionally, check that the volume can be attached to this
             # instance.
@@ -832,6 +833,16 @@ class API(base.Base):
                 continue
             self._update_block_device_mapping(context,
                     instance_type, instance_uuid, mapping)
+        # NOTE(ndipanov): Create an image bdm - at the moment
+        #                 this is not used but is done for easier transition
+        #                 in the future.
+        if (instance['image_ref'] and not
+            self.is_volume_backed_instance(context, instance, None)):
+            image_bdm = block_device.create_image_bdm(instance['image_ref'])
+            image_bdm['instance_uuid'] = instance_uuid
+            self.db.block_device_mapping_update_or_create(context,
+                                                          image_bdm,
+                                                          legacy=False)
 
     def _populate_instance_shutdown_terminate(self, instance, image,
                                               block_device_mapping):
@@ -1039,8 +1050,9 @@ class API(base.Base):
             return
 
         host = instance['host']
-        bdms = self.db.block_device_mapping_get_all_by_instance(
-                    context, instance['uuid'])
+        bdms = block_device.legacy_mapping(
+                    self.db.block_device_mapping_get_all_by_instance(
+                    context, instance['uuid']))
         reservations = None
 
         if context.is_admin and context.project_id != instance['project_id']:
@@ -1617,7 +1629,8 @@ class API(base.Base):
             properties['root_device_name'] = instance['root_device_name']
         properties.update(extra_properties or {})
 
-        bdms = self.get_instance_bdms(context, instance)
+        bdms = block_device.legacy_mapping(
+            self.get_instance_bdms(context, instance))
 
         mapping = []
         for bdm in bdms:
@@ -1690,8 +1703,9 @@ class API(base.Base):
         return min_ram, min_disk
 
     def _get_block_device_info(self, context, instance_uuid):
-        bdms = self.db.block_device_mapping_get_all_by_instance(context,
-                                                                instance_uuid)
+        bdms = block_device.legacy_mapping(
+            self.db.block_device_mapping_get_all_by_instance(context,
+                                                             instance_uuid))
         block_device_mapping = []
         for bdm in bdms:
             if not bdm['volume_id']:
@@ -1830,8 +1844,10 @@ class API(base.Base):
         # system metadata... and copy in the properties for the new image.
         orig_sys_metadata = _reset_image_metadata()
 
-        bdms = self.db.block_device_mapping_get_all_by_instance(context,
-                instance['uuid'])
+        bdms = block_device.legacy_mapping(
+            self.db.block_device_mapping_get_all_by_instance(
+                context,
+                instance['uuid']))
 
         self._record_action_start(context, instance, instance_actions.REBUILD)
 
@@ -2166,7 +2182,8 @@ class API(base.Base):
     def rescue(self, context, instance, rescue_password=None):
         """Rescue the given instance."""
 
-        bdms = self.get_instance_bdms(context, instance)
+        bdms = block_device.legacy_mapping(
+            self.get_instance_bdms(context, instance))
         for bdm in bdms:
             if bdm['volume_id']:
                 volume = self.volume_api.get(context, bdm['volume_id'])
@@ -2462,7 +2479,8 @@ class API(base.Base):
             return True
 
         if bdms is None:
-            bdms = self.get_instance_bdms(context, instance)
+            bdms = block_device.legacy_mapping(
+                self.get_instance_bdms(context, instance))
 
         for bdm in bdms:
             if (block_device.strip_dev(bdm['device_name']) ==

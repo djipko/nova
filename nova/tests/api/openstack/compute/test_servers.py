@@ -1750,6 +1750,7 @@ class ServersControllerCreateTest(test.TestCase):
                 "fixed_ips": [],
                 "task_state": "",
                 "vm_state": "",
+                "root_device_name": inst.get('root_device_name', 'vda'),
             }
 
             self.instance_cache_by_id[instance['id']] = instance
@@ -2304,7 +2305,7 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_volumes_enabled(self):
         self.ext_mgr.extensions = {'os-volumes': 'fake'}
-        bdm = [{'device_name': 'foo'}]
+        bdm = [{'device_name': 'foo', 'volume_id': 'fake_vol'}]
         params = {'block_device_mapping': bdm}
         old_create = compute_api.API.create
 
@@ -2312,7 +2313,11 @@ class ServersControllerCreateTest(test.TestCase):
             self.assertEqual(kwargs['block_device_mapping'], bdm)
             return old_create(*args, **kwargs)
 
+        def _validate_bdm(*args, **kwargs):
+            pass
+
         self.stubs.Set(compute_api.API, 'create', create)
+        self.stubs.Set(compute_api.API, '_validate_bdm', _validate_bdm)
         self._test_create_extra(params)
 
     def test_create_instance_with_volumes_enabled_no_image(self):
@@ -2337,7 +2342,7 @@ class ServersControllerCreateTest(test.TestCase):
         os-volumes extension is enabled and bdms are supplied
         """
         self.ext_mgr.extensions = {'os-volumes': 'fake'}
-        bdm = [{'device_name': 'foo'}]
+        bdm = [{'device_name': 'foo', 'volume_id': 'fake_vol'}]
         params = {'block_device_mapping': bdm}
         old_create = compute_api.API.create
 
@@ -2346,7 +2351,11 @@ class ServersControllerCreateTest(test.TestCase):
             self.assertNotIn('imageRef', kwargs)
             return old_create(*args, **kwargs)
 
+        def _validate_bdm(*args, **kwargs):
+            pass
+
         self.stubs.Set(compute_api.API, 'create', create)
+        self.stubs.Set(compute_api.API, '_validate_bdm', _validate_bdm)
         self._test_create_extra(params, no_image=True)
 
     def test_create_instance_with_volumes_disabled(self):
@@ -2431,17 +2440,27 @@ class ServersControllerCreateTest(test.TestCase):
 
     def test_create_instance_with_bdm_delete_on_termination(self):
         self.ext_mgr.extensions = {'os-volumes': 'fake'}
-        bdm = [{'device_name': 'foo1', 'delete_on_termination': 1},
-               {'device_name': 'foo2', 'delete_on_termination': True},
-               {'device_name': 'foo3', 'delete_on_termination': 'invalid'},
-               {'device_name': 'foo4', 'delete_on_termination': 0},
-               {'device_name': 'foo5', 'delete_on_termination': False}]
+        bdm = [{'device_name': 'foo1', 'volume_id': 'fake_vol',
+                'delete_on_termination': 1},
+               {'device_name': 'foo2', 'volume_id': 'fake_vol',
+                'delete_on_termination': True},
+               {'device_name': 'foo3', 'volume_id': 'fake_vol',
+                'delete_on_termination': 'invalid'},
+               {'device_name': 'foo4', 'volume_id': 'fake_vol',
+                'delete_on_termination': 0},
+               {'device_name': 'foo5', 'volume_id': 'fake_vol',
+                'delete_on_termination': False}]
         expected_bdm = [
-            {'device_name': 'foo1', 'delete_on_termination': True},
-            {'device_name': 'foo2', 'delete_on_termination': True},
-            {'device_name': 'foo3', 'delete_on_termination': False},
-            {'device_name': 'foo4', 'delete_on_termination': False},
-            {'device_name': 'foo5', 'delete_on_termination': False}]
+            {'device_name': 'foo1', 'volume_id': 'fake_vol',
+             'delete_on_termination': True},
+            {'device_name': 'foo2', 'volume_id': 'fake_vol',
+             'delete_on_termination': True},
+            {'device_name': 'foo3', 'volume_id': 'fake_vol',
+             'delete_on_termination': False},
+            {'device_name': 'foo4', 'volume_id': 'fake_vol',
+             'delete_on_termination': False},
+            {'device_name': 'foo5', 'volume_id': 'fake_vol',
+             'delete_on_termination': False}]
         params = {'block_device_mapping': bdm}
         old_create = compute_api.API.create
 
@@ -2449,7 +2468,11 @@ class ServersControllerCreateTest(test.TestCase):
             self.assertEqual(expected_bdm, kwargs['block_device_mapping'])
             return old_create(*args, **kwargs)
 
+        def _validate_bdm(*args, **kwargs):
+            pass
+
         self.stubs.Set(compute_api.API, 'create', create)
+        self.stubs.Set(compute_api.API, '_validate_bdm', _validate_bdm)
         self._test_create_extra(params)
 
     def test_create_instance_with_user_data_enabled(self):
