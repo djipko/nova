@@ -177,6 +177,31 @@ def create_image_bdm(image_ref, boot_index=0):
     return image_bdm
 
 
+def from_legacy_mapping(legacy_block_device_mapping, image_uuid,
+                        assign_boot_index=False):
+    """Transform a list of block devices of an instance from the legacy
+    to the new data format."""
+
+    new_bdms = [BlockDeviceDict.from_legacy(legacy_bdm)
+                for legacy_bdm in legacy_block_device_mapping]
+
+    if image_uuid:
+        image_bdm = create_image_bdm(image_uuid)
+        new_bdms = [image_bdm] + new_bdms
+
+    # Decide boot sequences:
+    if assign_boot_index:
+        non_boot = [bdm for bdm in new_bdms if bdm['source_type'] == 'blank']
+        bootable = [bdm for bdm in new_bdms if bdm not in non_boot]
+
+        for index, bdm in enumerate(bootable):
+            bdm['boot_index'] = index
+
+        return bootable + non_boot
+    else:
+        return new_bdms
+
+
 def legacy_mapping(block_device_mapping):
     """Transform a list of block devices of an instance back to the
     legacy data format."""
