@@ -17,6 +17,7 @@
 
 import re
 
+from nova import exception
 from nova.openstack.common import log as logging
 from nova.virt import driver
 
@@ -27,6 +28,141 @@ _DEFAULT_MAPPINGS = {'ami': 'sda1',
                      'ephemeral0': 'sda2',
                      'root': DEFAULT_ROOT_DEV_NAME,
                      'swap': 'sda3'}
+
+
+bdm_legacy_fields = set(["device_name", "delete_on_termination",
+                         "virtual_name", "snapshot_id",
+                         "volume_id", "volume_size", "no_device",
+                         "connection_info"])
+
+
+bdm_new_fields = set(['source_type', 'destination_type',
+                     'guest_format', 'device_type', 'disk_bus', 'boot_index',
+                     'device_name', 'delete_on_termination', 'snapshot_id',
+                     'volume_id', 'volume_size', 'image_id', 'no_device',
+                     'connection_info'])
+
+
+bdm_db_only_fields = set(['id', 'instance_uuid'])
+
+
+bdm_db_inherited_fields = set(['created_at', 'updated_at',
+                               'deleted_at', 'deleted'])
+
+
+class BlockDeviceDict(dict):
+    """Represents a Block Device Mapping in Nova."""
+
+    _fields = bdm_new_fields
+    _db_only_fields = (bdm_db_only_fields |
+               bdm_db_inherited_fields)
+
+    def __init__(self, bdm_dict=None, do_not_default=None):
+        super(dict, self).__init__()
+
+        bdm_dict = bdm_dict or {}
+        do_not_default = do_not_default or set()
+
+        self._validate(bdm_dict)
+        # NOTE (ndipanov): Add db fields only if they were
+        #                  present in the bdm_dict
+        self.update(
+            dict((field, None)
+            for field in self._fields - do_not_default))
+        self.update(bdm_dict)
+
+    def _validate(self, bdm_dict):
+        """Basic validation - only that no unknown fields are passed."""
+        if (not set(bdm_dict.iterkeys()) <=
+            (self._fields | self._db_only_fields)):
+            raise exception.InvalidBDMFormat()
+
+    @classmethod
+    def from_legacy(cls, legacy_bdm):
+
+        copy_over_fields = bdm_legacy_fields & bdm_new_fields
+        copy_over_fields |= (bdm_db_only_fields |
+                             bdm_db_inherited_fields)
+        # NOTE (ndipanov): These fields cannot be computed
+        # from legacy bdm, so do not default them if
+        # to avoid overwriting meaningful values in the db
+        non_computable_fields = set(['boot_index', 'disk_bus',
+                                     'guest_format', 'device_type'])
+
+        new_bdm = cls(dict((fld, val) for fld, val in legacy_bdm.iteritems()
+                          if fld in copy_over_fields), non_computable_fields)
+
+        virt_name = legacy_bdm.get('virtual_name')
+        volume_size = legacy_bdm.get('volume_size')
+
+        if is_swap_or_ephemeral(virt_name):
+            new_bdm['source_type'] = 'blank'
+            new_bdm['delete_on_termination'] = True
+            new_bdm['destination_type'] = 'local'
+
+            if virt_name == 'swap':
+                new_bdm['guest_format'] = 'swap'
+
+        elif legacy_bdm.get('snapshot_id'):
+            new_bdm['source_type'] = 'snapshot'
+            new_bdm['destination_type'] = 'volume'
+
+        elif legacy_bdm.get('volume_id'):
+            new_bdm['source_type'] = 'volume'
+            new_bdm['destination_type'] = 'volume'
+
+        else:
+            raise exception.InvalidBDMFormat()
+
+        return new_bdm
+
+    def legacy(self):
+        copy_over_fields = bdm_legacy_fields - set(['virtual_name'])
+        copy_over_fields |= (bdm_db_only_fields |
+                             bdm_db_inherited_fields)
+
+        legacy_block_device = dict((field, self.get(field))
+            for field in copy_over_fields if field in self)
+
+        source_type = self.get('source_type')
+        if source_type == 'blank':
+            if self['guest_format'] == 'swap':
+                legacy_block_device['virtual_name'] = 'swap'
+            else:
+                # NOTE (ndipanov): Allways label as 0 it is up to
+                # the calling routine to re-enumarete them
+                legacy_block_device['virtual_name'] = 'ephemeral0'
+        elif source_type in ('volume', 'snapshot'):
+            legacy_block_device['virtual_name'] = None
+        elif source_type == 'image':
+            # NOTE(ndipanov): Image bdms have no meaning in
+            # the legacy format - raise
+            raise exception.InvalidBDMForLegacy()
+
+        return legacy_block_device
+
+
+def legacy_mapping(block_device_mapping):
+    """Transform a list of block devices of an instance back to the
+    legacy data format."""
+
+    legacy_block_device_mapping = []
+
+    for bdm in block_device_mapping:
+        try:
+            legacy_block_device = BlockDeviceDict(bdm).legacy()
+        except exception.InvalidBDMForLegacy:
+            continue
+
+        legacy_block_device_mapping.append(legacy_block_device)
+
+    # Re-enumerate the ephemeral devices
+    for i, dev in enumerate(dev for dev in legacy_block_device_mapping
+                            if dev['virtual_name'] and
+                            is_ephemeral(dev['virtual_name'])):
+        dev['virtual_name'] = dev['virtual_name'][:-1] + str(i)
+
+    return legacy_block_device_mapping
 
 
 def properties_root_device_name(properties):
@@ -61,7 +197,8 @@ def ephemeral_num(ephemeral_name):
 
 
 def is_swap_or_ephemeral(device_name):
-    return device_name == 'swap' or is_ephemeral(device_name)
+    return (device_name and
+            (device_name == 'swap' or is_ephemeral(device_name)))
 
 
 def mappings_prepend_dev(mappings):
