@@ -1317,28 +1317,31 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
 
     def _pre_upgrade_178(self, engine):
         fake_instances = [
-            dict(uuid='mig154_uuid-1', image_ref='fake_image_1'),
-            dict(uuid='mig154_uuid-2', image_ref=''),
-            dict(uuid='mig154_uuid-3', image_ref='fake_image_2'),
+            dict(uuid='mig178_uuid-1', image_ref='fake_image_1',
+                 root_device_name='/dev/vda'),
+            dict(uuid='mig178_uuid-2', image_ref='',
+                 root_device_name='vda'),
+            dict(uuid='mig178_uuid-3', image_ref='fake_image_2',
+                 root_device_name='/dev/vda'),
         ]
 
         fake_bdms = [
             # Instance 1 - image, volume and swap
-            dict(instance_uuid='mig154_uuid-1', device_name='/dev/vdc',
+            dict(instance_uuid='mig178_uuid-1', device_name='/dev/vdc',
                  volume_id='fake_volume_1'),
-            dict(instance_uuid='mig154_uuid-1', device_name='/dev/vdb',
+            dict(instance_uuid='mig178_uuid-1', device_name='/dev/vdb',
                  virtual_name='swap'),
             # Instance 2 - no image. snapshot and volume
-            dict(instance_uuid='mig154_uuid-2', device_name='/dev/vda',
+            dict(instance_uuid='mig178_uuid-2', device_name='/dev/vda',
                  snapshot_id='fake_snap_1', volume_id='fake_volume_2'),
-            dict(instance_uuid='mig154_uuid-2', device_name='/dev/vdc',
+            dict(instance_uuid='mig178_uuid-2', device_name='/dev/vdc',
                  volume_id='fake_volume_3'),
             # Instance 3 - ephemerals and swap
-            dict(instance_uuid='mig154_uuid-3', device_name='/dev/vdc',
+            dict(instance_uuid='mig178_uuid-3', device_name='/dev/vdc',
                  virtual_name='ephemeral0'),
-            dict(instance_uuid='mig154_uuid-3', device_name='/dev/vdd',
+            dict(instance_uuid='mig178_uuid-3', device_name='/dev/vdd',
                  virtual_name='ephemeral1'),
-            dict(instance_uuid='mig154_uuid-3', device_name='/dev/vdb',
+            dict(instance_uuid='mig178_uuid-3', device_name='/dev/vdb',
                  virtual_name='swap'),
         ]
 
@@ -1355,7 +1358,7 @@ class TestNovaMigrations(BaseMigrationTestCase, CommonTestsMixIn):
 
         instance_qs = []
 
-        for instance in ('mig154_uuid-1', 'mig154_uuid-2', 'mig154_uuid-3'):
+        for instance in ('mig178_uuid-1', 'mig178_uuid-2', 'mig178_uuid-3'):
             q = block_device.select().where(
                 block_device.c.instance_uuid == instance).order_by(
                 block_device.c.id.asc()

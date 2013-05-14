@@ -40,6 +40,14 @@ def _is_swap_or_ephemeral(device_name):
             (device_name == 'swap' or _is_ephemeral(device_name)))
 
 
+_dev = re.compile('^/dev/')
+
+
+def strip_dev(device_name):
+    """remove leading '/dev/'."""
+    return _dev.sub('', device_name) if device_name else device_name
+
+
 def upgrade(migrate_engine):
     meta = MetaData(bind=migrate_engine)
 
@@ -124,7 +132,9 @@ def _upgrade_bdm_v2(meta, bdm_table):
 
         for bdm in bdms_v1:
             bdm_v2 = _default_bdm()
+            # Copy over some fields we'll need
             bdm_v2['id'] = bdm['id']
+            bdm_v2['device_name'] = bdm['device_name']
 
             virt_name = bdm.virtual_name
             if _is_swap_or_ephemeral(virt_name):
@@ -158,17 +168,27 @@ def _upgrade_bdm_v2(meta, bdm_table):
             image_bdm['instance_uuid'] = instance.uuid
             image_bdm['image_id'] = instance.image_ref
 
-        # NOTE (ndipanov):  Be conservative with allowing boot -
-        #                   Only allow boot from the first
-        #                   (non-ephemeral) bdm and image, as all others
-        #                   were most likely not intended to be bootable
-        if image_bdm:
+        # NOTE (ndipanov): Mark only the image or the bootable volume
+        #                  with boot index, as we don't support it yet.
+        #                  Also, make sure that instances started with
+        #                  the old syntax of specifying an image *and*
+        #                  a bootable volume still have consistend data.
+        bootable = [bdm for bdm in bdms_v2
+                    if strip_dev(bdm['device_name']) ==
+                       strip_dev(instance.root_device_name)
+                    and bdm['source_type'] != 'blank']
+
+        if len(bootable) > 1:
+            LOG.warn("Found inconsistent block device data for "
+                     "instance %s - non-unique bootable device."
+                     % instance.uuid)
+        if bootable:
+            bootable[0]['boot_index'] = 0
+        elif instance.image_ref:
             image_bdm['boot_index'] = 0
-        elif bdms_v2:
-            bootable = [bdm for bdm in bdms_v2 if bdm[
-                'source_type'] != 'blank']
-            if bootable:
-                bootable[0]['boot_index'] = 0
+        else:
+            LOG.warn("No bootable device found for instance %s."
+                     % instance.uuid)
 
         # Update the DB
         if image_bdm:

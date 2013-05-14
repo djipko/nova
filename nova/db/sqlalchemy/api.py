@@ -28,7 +28,7 @@ import time
 import uuid
 
 from oslo.config import cfg
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from sqlalchemy import Boolean
 from sqlalchemy.exc import DataError
 from sqlalchemy.exc import IntegrityError
@@ -3015,22 +3015,34 @@ def _block_device_mapping_get_query(context, session=None):
     return model_query(context, models.BlockDeviceMapping, session=session)
 
 
+def _from_legacy_values(values, legacy, allow_updates=False):
+    if legacy:
+        if allow_updates and block_device.is_safe_for_update(values):
+            return values
+        else:
+            return block_device.BlockDeviceDict.from_legacy(values)
+    else:
+        return values
+
+
 @require_context
-def block_device_mapping_create(context, values):
+def block_device_mapping_create(context, values, legacy=True):
+    values = _from_legacy_values(values, legacy)
     bdm_ref = models.BlockDeviceMapping()
     bdm_ref.update(values)
     bdm_ref.save()
 
 
 @require_context
-def block_device_mapping_update(context, bdm_id, values):
+def block_device_mapping_update(context, bdm_id, values, legacy=True):
+    values = _from_legacy_values(values, legacy, allow_updates=True)
     _block_device_mapping_get_query(context).\
             filter_by(id=bdm_id).\
             update(values)
 
 
 @require_context
-def block_device_mapping_update_or_create(context, values):
+def block_device_mapping_update_or_create(context, values, legacy=True):
     session = get_session()
     with session.begin():
         result = _block_device_mapping_get_query(context, session=session).\
@@ -3038,24 +3050,32 @@ def block_device_mapping_update_or_create(context, values):
                  filter_by(device_name=values['device_name']).\
                  first()
         if not result:
+            values = _from_legacy_values(values, legacy)
             bdm_ref = models.BlockDeviceMapping()
             bdm_ref.update(values)
             bdm_ref.save(session=session)
         else:
+            values = _from_legacy_values(values, legacy, allow_updates=True)
             result.update(values)
 
         # NOTE(yamahata): same virtual device name can be specified multiple
         #                 times. So delete the existing ones.
-        virtual_name = values['virtual_name']
-        if (virtual_name is not None and
-            block_device.is_swap_or_ephemeral(virtual_name)):
-
-            _block_device_mapping_get_query(context, session=session).\
-                filter_by(instance_uuid=values['instance_uuid']).\
-                filter_by(virtual_name=virtual_name).\
+        # TODO(ndipanov): Just changed to use new format for now -
+        #                 should be moved out of db layer or removed completely
+        if values.get('source_type') == 'blank':
+            is_swap = values.get('guest_format') == 'swap'
+            query = (_block_device_mapping_get_query(context, session=session).
+                filter_by(instance_uuid=values['instance_uuid']).
+                filter_by(source_type='blank').
                 filter(models.BlockDeviceMapping.device_name !=
-                       values['device_name']).\
-                soft_delete()
+                       values['device_name']))
+            if is_swap:
+                query.filter_by(guest_format='swap').soft_delete()
+            else:
+                (query.filter(or_(
+                    models.BlockDeviceMapping.guest_format == None,
+                    models.BlockDeviceMapping.guest_format != 'swap')).
+                 soft_delete())
 
 
 @require_context

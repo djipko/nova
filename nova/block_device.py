@@ -20,7 +20,10 @@ import re
 from nova import exception
 from nova.openstack.common import log as logging
 from nova.virt import driver
+from oslo.config import cfg
 
+CONF = cfg.CONF
+CONF.import_opt('default_ephemeral_format', 'nova.virt.driver')
 LOG = logging.getLogger(__name__)
 
 DEFAULT_ROOT_DEV_NAME = '/dev/sda1'
@@ -30,10 +33,10 @@ _DEFAULT_MAPPINGS = {'ami': 'sda1',
                      'swap': 'sda3'}
 
 
-bdm_legacy_fields = set(["device_name", "delete_on_termination",
-                         "virtual_name", "snapshot_id",
-                         "volume_id", "volume_size", "no_device",
-                         "connection_info"])
+bdm_legacy_fields = set(['device_name', 'delete_on_termination',
+                         'virtual_name', 'snapshot_id',
+                         'volume_id', 'volume_size', 'no_device',
+                         'connection_info'])
 
 
 bdm_new_fields = set(['source_type', 'destination_type',
@@ -64,18 +67,18 @@ class BlockDeviceDict(dict):
         do_not_default = do_not_default or set()
 
         self._validate(bdm_dict)
-        # NOTE (ndipanov): Add db fields only if they were
-        #                  present in the bdm_dict
+        # NOTE (ndipanov): Never default db fields
         self.update(
             dict((field, None)
             for field in self._fields - do_not_default))
         self.update(bdm_dict)
 
     def _validate(self, bdm_dict):
-        """Basic validation - only that no unknown fields are passed."""
-        if (not set(bdm_dict.iterkeys()) <=
+        """Basic data format validations."""
+        if (not set(key for key, _ in bdm_dict.iteritems()) <=
             (self._fields | self._db_only_fields)):
             raise exception.InvalidBDMFormat()
+        # TODO(ndipanov): Validate must-have fields!
 
     @classmethod
     def from_legacy(cls, legacy_bdm):
@@ -84,7 +87,7 @@ class BlockDeviceDict(dict):
         copy_over_fields |= (bdm_db_only_fields |
                              bdm_db_inherited_fields)
         # NOTE (ndipanov): These fields cannot be computed
-        # from legacy bdm, so do not default them if
+        # from legacy bdm, so do not default them
         # to avoid overwriting meaningful values in the db
         non_computable_fields = set(['boot_index', 'disk_bus',
                                      'guest_format', 'device_type'])
@@ -102,6 +105,8 @@ class BlockDeviceDict(dict):
 
             if virt_name == 'swap':
                 new_bdm['guest_format'] = 'swap'
+            else:
+                new_bdm['guest_format'] = CONF.default_ephemeral_format
 
         elif legacy_bdm.get('snapshot_id'):
             new_bdm['source_type'] = 'snapshot'
@@ -110,6 +115,10 @@ class BlockDeviceDict(dict):
         elif legacy_bdm.get('volume_id'):
             new_bdm['source_type'] = 'volume'
             new_bdm['destination_type'] = 'volume'
+
+        elif legacy_bdm.get('no_device'):
+            # NOTE (ndipanov): Just keep the BDM for now,
+            pass
 
         else:
             raise exception.InvalidBDMFormat()
@@ -125,6 +134,7 @@ class BlockDeviceDict(dict):
             for field in copy_over_fields if field in self)
 
         source_type = self.get('source_type')
+        no_device = self.get('no_device')
         if source_type == 'blank':
             if self['guest_format'] == 'swap':
                 legacy_block_device['virtual_name'] = 'swap'
@@ -132,7 +142,7 @@ class BlockDeviceDict(dict):
                 # NOTE (ndipanov): Allways label as 0 it is up to
                 # the calling routine to re-enumarete them
                 legacy_block_device['virtual_name'] = 'ephemeral0'
-        elif source_type in ('volume', 'snapshot'):
+        elif source_type in ('volume', 'snapshot') or no_device:
             legacy_block_device['virtual_name'] = None
         elif source_type == 'image':
             # NOTE(ndipanov): Image bdms have no meaning in
@@ -140,6 +150,16 @@ class BlockDeviceDict(dict):
             raise exception.InvalidBDMForLegacy()
 
         return legacy_block_device
+
+
+def is_safe_for_update(block_device_dict):
+    """Determine if passed dict is a safe subset of both legacy
+    and new versions of data, that can be passed to an UPDATE query
+    without any transformation."""
+    fields = set(block_device_dict.keys())
+    return fields <= (bdm_new_fields |
+                      bdm_db_inherited_fields |
+                      bdm_db_only_fields)
 
 
 def create_image_bdm(image_ref, boot_index=0):

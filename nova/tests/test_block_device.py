@@ -165,6 +165,9 @@ class TestBlockDeviceDict(test.TestCase):
              'snapshot_id': 'fake-snapshot-id-1',
              'volume_id': 'fake-volume-id-2',
              'boot_index': -1}),
+            BDM({'id': 5, 'instance_uuid': 'fake-instance',
+                 'no_device': True,
+                 'device_name': '/dev/vdc'}),
         ]
 
         self.legacy_mapping = [
@@ -184,7 +187,10 @@ class TestBlockDeviceDict(test.TestCase):
              'device_name': '/dev/sda2',
              'connection_info': "{'fake': 'connection_info'}",
              'snapshot_id': 'fake-snapshot-id-1',
-             'volume_id': 'fake-volume-id-2'}
+             'volume_id': 'fake-volume-id-2'},
+            {'id': 5, 'instance_uuid': 'fake-instance',
+             'no_device': True,
+             'device_name': '/dev/vdc'},
         ]
 
     def test_init(self):
