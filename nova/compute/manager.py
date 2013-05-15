@@ -924,8 +924,9 @@ class ComputeManager(manager.SchedulerDependentManager):
                       locals())
 
         network_info = None
-        bdms = self.conductor_api.block_device_mapping_get_all_by_instance(
-            context, instance)
+        bdms = block_device.legacy_mapping(
+            self.conductor_api.block_device_mapping_get_all_by_instance(
+                context, instance))
 
         # b64 decode the files to inject:
         injected_files_orig = injected_files
@@ -1017,8 +1018,9 @@ class ComputeManager(manager.SchedulerDependentManager):
                       instance=instance)
             if bdms is None:
                 capi = self.conductor_api
-                bdms = capi.block_device_mapping_get_all_by_instance(context,
-                                                                     instance)
+                bdms = block_device.legacy_mapping(
+                    capi.block_device_mapping_get_all_by_instance(context,
+                                                                  instance))
             self._shutdown_instance(context, instance, bdms)
             self._cleanup_volumes(context, instance['uuid'], bdms)
         except Exception:
@@ -1219,10 +1221,14 @@ class ComputeManager(manager.SchedulerDependentManager):
         return [bdm for bdm in bdms if bdm['volume_id']]
 
     # NOTE(danms): Legacy interface for digging up volumes in the database
+    # TODO(ndipanov): Converting to legacy data format here instead of where
+    #                 this is called for now - we should refactor this to not
+    #                 do the DB call.
     def _get_instance_volume_bdms(self, context, instance):
         return self._get_volume_bdms(
-            self.conductor_api.block_device_mapping_get_all_by_instance(
-                context, instance))
+            block_device.legacy_mapping(
+                self.conductor_api.block_device_mapping_get_all_by_instance(
+                    context, instance)))
 
     def _get_instance_volume_bdm(self, context, instance, volume_id):
         bdms = self._get_instance_volume_bdms(context, instance)
@@ -1639,9 +1645,10 @@ class ComputeManager(manager.SchedulerDependentManager):
             network_info = self._get_instance_nw_info(context, instance)
 
             if bdms is None:
-                bdms = self.conductor_api.\
+                bdms = block_device.legacy_mapping(
+                    self.conductor_api.
                         block_device_mapping_get_all_by_instance(
-                                context, instance)
+                                context, instance))
 
             # NOTE(sirp): this detach is necessary b/c we will reattach the
             # volumes in _prep_block_devices below.
@@ -2928,8 +2935,9 @@ class ComputeManager(manager.SchedulerDependentManager):
 
         @utils.synchronized(instance['uuid'])
         def do_reserve():
-            bdms = self.conductor_api.block_device_mapping_get_all_by_instance(
-                context, instance)
+            bdms = block_device.legacy_mapping(
+                self.conductor_api.block_device_mapping_get_all_by_instance(
+                    context, instance))
 
             device_name = compute_utils.get_device_name_for_instance(
                     context, instance, bdms, device)
@@ -3184,7 +3192,8 @@ class ComputeManager(manager.SchedulerDependentManager):
         :returns: a dict containing migration info
         """
         capi = self.conductor_api
-        bdms = capi.block_device_mapping_get_all_by_instance(ctxt, instance)
+        bdms = block_device.legacy_mapping(
+            capi.block_device_mapping_get_all_by_instance(ctxt, instance))
 
         is_volume_backed = self.compute_api.is_volume_backed_instance(ctxt,
                                                                       instance,
@@ -3995,8 +4004,9 @@ class ComputeManager(manager.SchedulerDependentManager):
         for instance in instances:
             if self._deleted_old_enough(instance, interval):
                 capi = self.conductor_api
-                bdms = capi.block_device_mapping_get_all_by_instance(
-                    context, instance)
+                bdms = block_device.legacy_mapping(
+                    capi.block_device_mapping_get_all_by_instance(
+                        context, instance))
                 LOG.info(_('Reclaiming deleted instance'), instance=instance)
                 # NOTE(comstud): Quotas were already accounted for when
                 # the instance was soft deleted, so there's no need to
@@ -4070,8 +4080,9 @@ class ComputeManager(manager.SchedulerDependentManager):
         with utils.temporary_mutation(context, read_deleted="yes"):
             for instance in self._running_deleted_instances(context):
                 capi = self.conductor_api
-                bdms = capi.block_device_mapping_get_all_by_instance(
-                    context, instance)
+                bdms = block_device.legacy_mapping(
+                    capi.block_device_mapping_get_all_by_instance(
+                        context, instance))
 
                 if action == "log":
                     name = instance['name']
