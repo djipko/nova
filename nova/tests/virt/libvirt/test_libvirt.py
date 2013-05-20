@@ -3165,6 +3165,28 @@ class LibvirtConnTestCase(test.TestCase):
         self.stubs.Set(os.path, 'exists', fake_os_path_exists)
         conn.destroy(instance, [], None, False)
 
+    def test_reboot(self):
+        mock = self.mox.CreateMock(libvirt.virDomain)
+        mock.ID()
+        mock.destroy()
+        mock.reset()
+
+        self.mox.ReplayAll()
+
+        def fake_lookup_by_name(instance_name):
+            return mock
+
+        def fake_reboot_id(instance_name):
+            return {'state': power_state.SHUTOFF, 'id': 500}
+
+        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+        instance = {"name": "instancename", "id": "instanceid",
+                    "uuid": "875a8070-d0b9-4949-8b31-104d125c9a64"}
+        self.stubs.Set(conn, '_lookup_by_name', fake_lookup_by_name)
+        self.stubs.Set(conn, 'get_info', fake_reboot_id)
+        conn.destroy(instance, [])
+        conn.reset(instance, [])
+
     def test_destroy_undefines(self):
         mock = self.mox.CreateMock(libvirt.virDomain)
         mock.ID()
