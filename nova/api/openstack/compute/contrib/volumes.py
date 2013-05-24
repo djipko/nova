@@ -673,4 +673,8 @@ class Volumes(extensions.ExtensionDescriptor):
                                         collection_actions={'detail': 'GET'})
         resources.append(res)
 
+        res = extensions.ResourceExtension('os-volumes_boot_v2',
+                                           inherits='servers')
+        resources.append(res)
+
         return resources
