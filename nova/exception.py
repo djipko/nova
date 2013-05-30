@@ -223,8 +223,7 @@ class InvalidBDMVolume(InvalidBDM):
 
 class InvalidBDMFormat(InvalidBDM):
     message = _("Block Device Mapping is Invalid: "
-                "some fields are not recognized, "
-                "or have invalid values.")
+                "%(details)s")
 
 
 class InvalidBDMForLegacy(InvalidBDM):
