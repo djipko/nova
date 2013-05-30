@@ -21,6 +21,8 @@ from oslo.config import cfg
 
 from nova import exception
 from nova.openstack.common import log as logging
+from nova.openstack.common import strutils
+from nova import utils
 from nova.virt import driver
 
 CONF = cfg.CONF
@@ -71,6 +73,8 @@ class BlockDeviceDict(dict):
     _db_only_fields = (bdm_db_only_fields |
                bdm_db_inherited_fields)
 
+    _required_fields = set(['source_type'])
+
     def __init__(self, bdm_dict=None, do_not_default=None):
         super(BlockDeviceDict, self).__init__()
 
@@ -86,10 +90,34 @@ class BlockDeviceDict(dict):
 
     def _validate(self, bdm_dict):
         """Basic data format validations."""
-        if (not set(key for key, _ in bdm_dict.iteritems()) <=
+        dict_fields = set(key for key, _ in bdm_dict.iteritems())
+
+        # Check that there are no bogus fields
+        if not (dict_fields <=
                 (self._fields | self._db_only_fields)):
             raise exception.InvalidBDMFormat()
-        # TODO(ndipanov): Validate must-have fields!
+
+        if bdm_dict.get('no_device'):
+            return
+
+        # Check that all required fields are there
+        if (self._required_fields and
+                not ((dict_fields & self._required_fields) ==
+                      self._required_fields)):
+            raise exception.InvalidBDMFormat()
+
+        if 'delete_on_termination' in bdm_dict:
+            bdm_dict['delete_on_termination'] = strutils.bool_from_string(
+                bdm_dict['delete_on_termination'])
+
+        if bdm_dict.get('device_name') is not None:
+            validate_device_name(bdm_dict['device_name'])
+
+        if bdm_dict.get('boot_index'):
+            try:
+                bdm_dict['boot_index'] = int(bdm_dict['boot_index'])
+            except ValueError:
+                raise exception.InvalidBDMFormat()
 
     @classmethod
     def from_legacy(cls, legacy_bdm):
@@ -252,6 +280,20 @@ def properties_root_device_name(properties):
         root_device_name = properties['root_device_name']
 
     return root_device_name
+
+
+def validate_device_name(value):
+    try:
+        # NOTE (ndipanov): Do not allow empty device names
+        #                  until assigning default values
+        #                  is supported by nova.compute
+        utils.check_string_length(value, 'Device name',
+                                  min_length=1, max_length=255)
+    except exception.InvalidInput as e:
+        raise exception.InvalidBDMFormat()
+
+    if ' ' in value:
+        raise exception.InvalidBDMFormat()
 
 
 _ephemeral = re.compile('^ephemeral(\d|[1-9]\d+)$')
