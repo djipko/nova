@@ -196,9 +196,10 @@ class LocalAPI(object):
         return self._manager.block_device_mapping_update_or_create(context,
                                                                    values)
 
-    def block_device_mapping_get_all_by_instance(self, context, instance):
+    def block_device_mapping_get_all_by_instance(self, context, instance,
+                                                 legacy=True):
         return self._manager.block_device_mapping_get_all_by_instance(
-            context, instance)
+            context, instance, legacy)
 
     def block_device_mapping_destroy(self, context, bdms):
         return self._manager.block_device_mapping_destroy(context, bdms=bdms)
@@ -547,9 +548,10 @@ class API(object):
         return self.conductor_rpcapi.block_device_mapping_update_or_create(
             context, values)
 
-    def block_device_mapping_get_all_by_instance(self, context, instance):
+    def block_device_mapping_get_all_by_instance(self, context, instance,
+                                                 legacy=True):
         return self.conductor_rpcapi.block_device_mapping_get_all_by_instance(
-            context, instance)
+            context, instance, legacy)
 
     def block_device_mapping_destroy(self, context, bdms):
         return self.conductor_rpcapi.block_device_mapping_destroy(context,

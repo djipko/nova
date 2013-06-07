@@ -418,9 +418,8 @@ def get_metadata_by_instance_id(conductor_api, instance_id, address,
 
 
 def _format_instance_mapping(conductor_api, ctxt, instance):
-    bdms = block_device.legacy_mapping(
-        conductor_api.block_device_mapping_get_all_by_instance(
-               ctxt, instance))
+    bdms = conductor_api.block_device_mapping_get_all_by_instance(
+               ctxt, instance)
     return block_device.instance_block_mapping(instance, bdms)
 
 
