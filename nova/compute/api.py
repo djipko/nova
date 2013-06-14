@@ -526,6 +526,22 @@ class API(base.Base):
             if int(image.get('min_disk') or 0) > root_gb:
                     raise exception.InstanceTypeDiskTooSmall()
 
+    def _check_and_transform_bdm(base_options, min_count, max_count,
+                                 block_device_mapping, legacy_mapping):
+        if legacy_mapping:
+            block_device_mapping =  block_device.from_legacy_mapping(
+                block_device_mapping, image_href,
+                base_options.get('root_device_name'))
+
+        if min_count > 1 or max_count > 1:
+            if any(map(lambda bdm: bdm['source_type'] == 'volume',
+                       block_device_mapping)):
+                msg = _('Cannot attach one or more volumes to multiple'
+                        ' instances')
+                raise exception.InvalidRequest(msg)
+
+        return block_device_mapping
+
     def _get_image(self, context, image_href):
         if not image_href:
             return None, {}
@@ -546,8 +562,7 @@ class API(base.Base):
 
     def _validate_and_build_base_options(self, context, instance_type,
                                          image, image_href, image_id,
-                                         kernel_id, ramdisk_id, min_count,
-                                         max_count, display_name,
+                                         kernel_id, ramdisk_id, display_name,
                                          display_description, key_name,
                                          key_data, security_groups,
                                          availability_zone, user_data,
@@ -559,11 +574,6 @@ class API(base.Base):
         """Verify all the input parameters regardless of the provisioning
         strategy being performed.
         """
-        if min_count > 1 or max_count > 1:
-            if any(map(lambda bdm: 'volume_id' in bdm, block_device_mapping)):
-                msg = _('Cannot attach one or more volumes to multiple'
-                        ' instances')
-                raise exception.InvalidRequest(msg)
         if instance_type['disabled']:
             raise exception.InstanceTypeNotFound(
                     instance_type_id=instance_type['id'])
@@ -720,7 +730,8 @@ class API(base.Base):
                access_ip_v4, access_ip_v6,
                requested_networks, config_drive,
                block_device_mapping, auto_disk_config,
-               reservation_id=None, scheduler_hints=None):
+               reservation_id=None, scheduler_hints=None,
+               legacy_bdm=True):
         """Verify all the input parameters regardless of the provisioning
         strategy being performed and schedule the instance(s) for
         creation.
@@ -749,11 +760,15 @@ class API(base.Base):
 
         base_options = self._validate_and_build_base_options(context,
                 instance_type, image, image_href, image_id, kernel_id,
-                ramdisk_id, min_count, max_count, display_name,
-                display_description, key_name, key_data, security_groups,
-                availability_zone, user_data, metadata, injected_files,
-                access_ip_v4, access_ip_v6, requested_networks, config_drive,
+                ramdisk_id, display_name, display_description,
+                key_name, key_data, security_groups, availability_zone,
+                user_data, metadata, injected_files, access_ip_v4,
+                access_ip_v6, requested_networks, config_drive,
                 block_device_mapping, auto_disk_config, reservation_id)
+
+        block_device_mapping = self._check_and_transform_bdm(
+            base_options, min_count, max_count,
+            block_device_mapping, legacy_mapping)
 
         instances = self._provision_instances(context, instance_type,
                 min_count, max_count, base_options, image, security_groups,
@@ -778,33 +793,26 @@ class API(base.Base):
         return (instances, reservation_id)
 
     @staticmethod
-    def _volume_size(instance_type, virtual_name):
+    def _volume_size(instance_type, bdm):
         size = 0
-        if virtual_name == 'swap':
-            size = instance_type.get('swap', 0)
-        elif block_device.is_ephemeral(virtual_name):
-            num = block_device.ephemeral_num(virtual_name)
+        if bdm.get('source_type') == 'blank':
+            if bdm.get('dest_format') == 'swap':
+                size = instance_type.get('swap', 0)
+            else:
+                size = instance_type.get('ephemeral_gb', 0)
+                return size
+        else:
+            return bdm.get('volume_size')
 
-            # TODO(yamahata): ephemeralN where N > 0
-            # Only ephemeral0 is allowed for now because InstanceTypes
-            # table only allows single local disk, ephemeral_gb.
-            # In order to enhance it, we need to add a new columns to
-            # instance_types table.
-            if num > 0:
-                return 0
+    def _prepare_image_mapping(self, elevated_context,
+                               instance_type, instance_uuid,
+                               mappings):
+        """Extract and format blank devices from image mappings."""
 
-            size = instance_type.get('ephemeral_gb')
+        prepped_mappings = []
 
-        return size
-
-    def _update_image_block_device_mapping(self, elevated_context,
-                                           instance_type, instance_uuid,
-                                           mappings):
-        """tell vm driver to create ephemeral/swap device at boot time by
-        updating BlockDeviceMapping
-        """
         for bdm in block_device.mappings_prepend_dev(mappings):
-            LOG.debug(_("bdm %s"), bdm, instance_uuid=instance_uuid)
+            LOG.debug(_("Image bdm %s"), bdm, instance_uuid=instance_uuid)
 
             virtual_name = bdm['virtual']
             if virtual_name == 'ami' or virtual_name == 'root':
@@ -813,17 +821,27 @@ class API(base.Base):
             if not block_device.is_swap_or_ephemeral(virtual_name):
                 continue
 
-            size = self._volume_size(instance_type, virtual_name)
-            if size == 0:
+            if virtual_name == 'swap':
+                guest_format = 'swap'
+            if not guest_format:
+                guest_format = CONF.default_ephemeral_format
+
+            values = block_device.BlockDeviceDict({
+                'device_name': bdm['device'],
+                'source_type': 'blank',
+                'destination_type': 'local',
+                'device_type': 'disk',
+                'guest_format': guest_format,
+                'boot_index': -1})
+
+            values['volume_size'] = self._blank_device_size(
+                instance_type, values)
+            if values['volume_size'] == 0:
                 continue
 
-            values = {
-                'instance_uuid': instance_uuid,
-                'device_name': bdm['device'],
-                'virtual_name': virtual_name,
-                'volume_size': size}
-            self.db.block_device_mapping_update_or_create(elevated_context,
-                                                          values)
+            prepped_mappings.append(values)
+
+        return preped_mappings
 
     def _update_block_device_mapping(self, elevated_context,
                                      instance_type, instance_uuid,
@@ -892,8 +910,8 @@ class API(base.Base):
         image_properties = image.get('properties', {})
         mappings = image_properties.get('mappings', [])
         if mappings:
-            self._update_image_block_device_mapping(context,
-                    instance_type, instance_uuid, mappings)
+            mappings = self._prepare_image_mapping(context, instance_type,
+                                                   instance_uuid, mappings)
 
         image_bdm = image_properties.get('block_device_mapping', [])
         for mapping in (image_bdm, block_device_mapping):
@@ -901,16 +919,6 @@ class API(base.Base):
                 continue
             self._update_block_device_mapping(context,
                     instance_type, instance_uuid, mapping)
-        # NOTE(ndipanov): Create an image bdm - at the moment
-        #                 this is not used but is done for easier transition
-        #                 in the future.
-        if (instance['image_ref'] and not
-                self.is_volume_backed_instance(context, instance, None)):
-            image_bdm = block_device.create_image_bdm(instance['image_ref'])
-            image_bdm['instance_uuid'] = instance_uuid
-            self.db.block_device_mapping_update_or_create(context,
-                                                          image_bdm,
-                                                          legacy=False)
 
     def _populate_instance_shutdown_terminate(self, instance, image,
                                               block_device_mapping):
@@ -1049,15 +1057,6 @@ class API(base.Base):
         Returns a tuple of (instances, reservation_id)
         """
 
-        # NOTE(ndipanov): Deal with block_device_mapping format before
-        #                 doing any work. We assume that the API class
-        #                 will be dealing with only one version of block
-        #                 devices whenever possible to keep the code
-        #                 simple. Currently this is the legacy format.
-        if block_device_mapping and not legacy_bdm:
-            block_device_mapping = block_device.legacy_mapping(
-                block_device_mapping)
-
         self._check_create_policies(context, availability_zone,
                 requested_networks, block_device_mapping)
 
@@ -1072,7 +1071,8 @@ class API(base.Base):
                                access_ip_v4, access_ip_v6,
                                requested_networks, config_drive,
                                block_device_mapping, auto_disk_config,
-                               scheduler_hints=scheduler_hints)
+                               scheduler_hints=scheduler_hints,
+                               legacy_bdm=legacy_bdm)
 
     def trigger_provider_fw_rules_refresh(self, context):
         """Called when a rule is added/removed from a provider firewall."""
