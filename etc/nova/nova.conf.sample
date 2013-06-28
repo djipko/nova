@@ -642,6 +642,12 @@
 # keys for the template are: name, uuid, count. (string value)
 #multi_instance_display_name_template=%(name)s-%(uuid)s
 
+# Maximum number of devices that will result in a local image
+# being created on the hypervisor node, excluding the image
+# used to start the instance.0 or less means unlimited.
+# (integer value)
+#max_local_block_devices=2
+
 
 #
 # Options defined in nova.compute.flavors
