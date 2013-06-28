@@ -228,6 +228,24 @@ class InvalidBDMVolume(InvalidBDM):
                 "failed to get volume %(id)s.")
 
 
+class InvalidBDMImage(InvalidBDM):
+    message = _("Block Device Mapping is Invalid: "
+                "failed to get image %(id)s.")
+
+
+class InvalidBDMBootSequence(InvalidBDM):
+    message = _("Block Device Mapping is Invalid: "
+                "Boot sequence for the instance "
+                "and image/block device mapping "
+                "combination is not valid.")
+
+
+class InvalidBDMLocalsLimit(InvalidBDM):
+    message = _("Block Device Mapping is Invalid: "
+                "You specified more local devices than the "
+                "limit allows")
+
+
 class InvalidBDMFormat(InvalidBDM):
     msg_fmt = _("Block Device Mapping is Invalid: "
                 "%(details)s")
