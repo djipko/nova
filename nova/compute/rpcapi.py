@@ -183,6 +183,7 @@ class ComputeAPI(nova.openstack.common.rpc.proxy.RpcProxy):
         2.30 - Adds live_snapshot_instance()
         2.31 - Adds shelve_instance(), shelve_offload_instance, and
                unshelve_instance()
+        2.32 - Added the leagacy_bdm_in_spec parameter to run_instance
     '''
 
     #
@@ -565,15 +566,16 @@ class ComputeAPI(nova.openstack.common.rpc.proxy.RpcProxy):
     def run_instance(self, ctxt, instance, host, request_spec,
                      filter_properties, requested_networks,
                      injected_files, admin_password,
-                     is_first_time, node=None):
+                     is_first_time, node=None, legacy_bdm_in_spec=True):
         instance_p = jsonutils.to_primitive(instance)
         self.cast(ctxt, self.make_msg('run_instance', instance=instance_p,
                 request_spec=request_spec, filter_properties=filter_properties,
                 requested_networks=requested_networks,
                 injected_files=injected_files, admin_password=admin_password,
-                is_first_time=is_first_time, node=node),
+                is_first_time=is_first_time, node=node,
+                legacy_bdm_in_spec=legacy_bdm_in_spec),
                 topic=_compute_topic(self.topic, ctxt, host, None),
-                version='2.19')
+                version='2.32')
 
     def set_admin_password(self, ctxt, instance, new_pass):
         instance_p = jsonutils.to_primitive(instance)
