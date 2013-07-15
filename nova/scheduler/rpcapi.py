@@ -69,6 +69,7 @@ class SchedulerAPI(nova.openstack.common.rpc.proxy.RpcProxy):
         handle the version_cap being set to 2.6.
 
         2.7 - Add select_destinations()
+        2.8 - Added the leagacy_bdm_in_spec parameter to run_instances
     '''
 
     #
@@ -99,13 +100,14 @@ class SchedulerAPI(nova.openstack.common.rpc.proxy.RpcProxy):
 
     def run_instance(self, ctxt, request_spec, admin_password,
             injected_files, requested_networks, is_first_time,
-            filter_properties):
+            filter_properties, legacy_bdm_in_spec=True):
         return self.cast(ctxt, self.make_msg('run_instance',
                 request_spec=request_spec, admin_password=admin_password,
                 injected_files=injected_files,
                 requested_networks=requested_networks,
                 is_first_time=is_first_time,
-                filter_properties=filter_properties))
+                filter_properties=filter_properties,
+                legacy_bdm_in_spec=legacy_bdm_in_spec), version='2.8')
 
     def prep_resize(self, ctxt, instance, instance_type, image,
             request_spec, filter_properties, reservations):
