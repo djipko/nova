@@ -1114,6 +1114,32 @@ def check_string_length(value, name, min_length=0, max_length=None):
         raise exception.InvalidInput(message=msg)
 
 
+def validate_integer_string(str_value, str_name,
+                            min_value=None, max_value=None):
+    try:
+        value = int(str(str_value))
+    except ValueError:
+        msg = _('%(value_name)s must be an integer')
+        raise exception.InvalidInput(reason=(
+            msg % {'value_name': str_name}))
+
+    if min_value is not None:
+        if value < min_value:
+            msg = _('%(value_name)s must be >= %(min_value)d')
+            raise exception.InvalidInput(
+                reason=(msg % {'value_name': str_name,
+                               'min_value': min_value}))
+    if max_value is not None:
+        if value > max_value:
+            msg = _('%{value_name}s must be <= %(max_value)d')
+            raise exception.InvalidInput(
+                reason=(
+                    msg % {'value_name': str_name,
+                           'max_value': max_value})
+            )
+    return value
+
+
 def spawn_n(func, *args, **kwargs):
     """Passthrough method for eventlet.spawn_n.
 
