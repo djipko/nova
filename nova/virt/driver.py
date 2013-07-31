@@ -974,6 +974,15 @@ class ComputeDriver(object):
             LOG.error(_("Exception dispatching event %(event)s: %(ex)s"),
                       {'event': event, 'ex': ex})
 
+    @property
+    def need_legacy_block_device_info(self):
+        """Tell the caller if the driver requires legacy block device info.
+
+        Tell the caller weather we expect the legacy format of block
+        device info to be passed in to methods that expect it.
+        """
+        return True
+
 
 def load_compute_driver(virtapi, compute_driver=None):
     """Load a compute driver module.
