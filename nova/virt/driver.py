@@ -990,6 +990,12 @@ class ComputeDriver(object):
         """
         return True
 
+    def get_next_device_name(self, device_type, device_bus, image, devices):
+        """Provide a device name for the current driver that doesn't
+        collide with any of the devices provided.
+        """
+        raise NotImplementedError()
+
 
 def load_compute_driver(virtapi, compute_driver=None):
     """Load a compute driver module.
