@@ -3352,20 +3352,14 @@ def block_device_mapping_update_or_create(context, values, legacy=True):
         #                 times. So delete the existing ones.
         # TODO(ndipanov): Just changed to use new format for now -
         #                 should be moved out of db layer or removed completely
-        if values.get('source_type') == 'blank':
-            is_swap = values.get('guest_format') == 'swap'
+        if block_device.new_format_is_swap(values):
             query = (_block_device_mapping_get_query(context, session=session).
                 filter_by(instance_uuid=values['instance_uuid']).
                 filter_by(source_type='blank').
                 filter(models.BlockDeviceMapping.device_name !=
-                       values['device_name']))
-            if is_swap:
-                query.filter_by(guest_format='swap').soft_delete()
-            else:
-                (query.filter(or_(
-                    models.BlockDeviceMapping.guest_format == None,
-                    models.BlockDeviceMapping.guest_format != 'swap')).
-                 soft_delete())
+                       values['device_name']).
+                filter_by(guest_format='swap'))
+            query.soft_delete()
         return result
 
 
