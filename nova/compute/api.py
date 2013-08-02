@@ -769,7 +769,9 @@ class API(base.Base):
             return {}
 
         for bdm in block_device_mapping:
-            if bdm.get('device_name') == "vda":
+            # NOTE(xqueralt): For backwards compatibility this will still
+            # select the volume with device_name=vda as root if present.
+            if bdm.get('device_name') == 'vda' or bdm.get('boot_index') == 0:
                 volume_id = bdm.get('volume_id')
                 if volume_id is not None:
                     try:
@@ -778,7 +780,7 @@ class API(base.Base):
                         return volume['volume_image_metadata']
                     except Exception:
                         raise exception.InvalidBDMVolume(id=volume_id)
-        return None
+        return {}
 
     def _create_instance(self, context, instance_type,
                image_href, kernel_id, ramdisk_id,

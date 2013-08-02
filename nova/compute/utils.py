@@ -112,12 +112,24 @@ def pack_action_event_finish(context, instance_uuid, event_name, exc_val=None,
 def get_device_name_for_instance(context, instance, bdms, device):
     """Validates (or generates) a device name for instance.
 
+    This method is a wrapper for get_next_device_name that gets the list
+    of used devices and the root device from a block device mapping.
+    """
+    mappings = block_device.instance_block_mapping(instance, bdms)
+    return get_next_device_name(instance, mappings.values(),
+                                mappings['root'], device)
+
+
+def get_next_device_name(instance, device_names,
+                         root_device_name=None, device=None):
+    """Validates (or generates) a device name for instance.
+
     If device is not set, it will generate a unique device appropriate
-    for the instance. It uses the block device mapping table to find
-    valid device names. If the device name is valid but applicable to
-    a different backend (for example /dev/vdc is specified but the
-    backend uses /dev/xvdc), the device name will be converted to the
-    appropriate format.
+    for the instance. It uses the root_device_name (if provided) and
+    the list of used devices to find valid device names. If the device
+    name is valid but applicable to a different backend (for example
+    /dev/vdc is specified but the backend uses /dev/xvdc), the device
+    name will be converted to the appropriate format.
     """
     req_prefix = None
     req_letter = None
@@ -128,23 +140,29 @@ def get_device_name_for_instance(context, instance, bdms, device):
         except (TypeError, AttributeError, ValueError):
             raise exception.InvalidDevicePath(path=device)
 
-    mappings = block_device.instance_block_mapping(instance, bdms)
+    if not root_device_name:
+        root_device_name = block_device.DEFAULT_ROOT_DEV_NAME
 
     try:
-        prefix = block_device.match_device(mappings['root'])[0]
+        prefix = block_device.match_device(root_device_name)[0]
     except (TypeError, AttributeError, ValueError):
-        raise exception.InvalidDevicePath(path=mappings['root'])
+        raise exception.InvalidDevicePath(path=root_device_name)
 
     # NOTE(vish): remove this when xenapi is setting default_root_device
     if driver.compute_driver_matches('xenapi.XenAPIDriver'):
         prefix = '/dev/xvd'
+
+    # NOTE(xqueralt): remove this in the next patch when manager will ask
+    # libvirt for device names. Keep it now for compatibility.
+    if driver.compute_driver_matches('libvirt.LibvirtDriver'):
+        prefix = '/dev/vd'
 
     if req_prefix != prefix:
         LOG.debug(_("Using %(prefix)s instead of %(req_prefix)s"),
                   {'prefix': prefix, 'req_prefix': req_prefix})
 
     used_letters = set()
-    for device_path in mappings.itervalues():
+    for device_path in device_names:
         letter = block_device.strip_prefix(device_path)
         # NOTE(vish): delete numbers in case we have something like
         #             /dev/sda1

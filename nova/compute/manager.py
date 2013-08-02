@@ -998,6 +998,10 @@ class ComputeManager(manager.SchedulerDependentManager):
         bdms = self.conductor_api.block_device_mapping_get_all_by_instance(
             context, instance, legacy=False)
 
+        # Verify that all the BDMs have a device_name set and assign a default
+        # one to the ones missing it with the help of the driver.
+        self._fix_block_device_names(context, instance, image_meta, bdms)
+
         # b64 decode the files to inject:
         injected_files_orig = injected_files
         injected_files = self._decode_files(injected_files)
@@ -1257,6 +1261,78 @@ class ComputeManager(manager.SchedulerDependentManager):
         return network_model.NetworkInfoAsyncWrapper(
                 self._allocate_network_async, context, instance,
                 requested_networks, macs, security_groups, is_vpn)
+
+    def _get_next_device_name(self, instance, image,
+                              device_type, device_names, root_device_name):
+        """Ask the driver to provide a device_name and, if that
+        Wrapper for the driver method get_next_device_name that will
+        fallback to the more generic method in
+        """
+        try:
+            return self.driver.get_next_device_name(device_type, image,
+                                                    device_names)
+        except NotImplementedError:
+            return compute_utils.get_next_device_name(instance, device_names,
+                                                      root_device_name)
+
+    def _fix_block_device_names(self, context, instance, image, block_devices):
+        """Verify that all the devices have the device_name set. If not,
+        provide a default name.
+
+        It also ensures that there is a root_device_name and is set to the
+        first block device in the boot sequence (boot_index=0).
+        """
+        root_device_name = instance['root_device_name']
+
+        root_bdm = None
+        device_names = []
+        need_device_name = []
+
+        for bdm in block_devices:
+            # Collect all the used device names to prevent duplicates
+            if bdm['device_name']:
+                device_names.append(bdm['device_name'])
+            else:
+                need_device_name.append(bdm)
+
+            if bdm['boot_index'] == 0:
+                root_bdm = bdm
+
+        # NOTE(xqueralt): skip if no device requires being named
+        if not need_device_name:
+            return
+
+        # Get the root_device_name from the root BDM or the instance
+        root_device_name = root_bdm['device_name'] or root_device_name
+
+        if not root_device_name:
+            # Reserve the first device name for the root BDM
+            dev_type = root_bdm['device_type']
+            root_device_name = self._get_next_device_name(
+              instance, image, dev_type, device_names, root_device_name)
+            # Associate the selected root device name to the instance
+            instance['root_device_name'] = root_device_name
+            self.conductor_api.instance_update(
+                context, instance['uuid'], root_device_name=root_device_name)
+
+        # Make sure that the root BDM has the proper device_name set
+        if not root_bdm['device_name']:
+            root_bdm['device_name'] = root_device_name
+            self.conductor_api.block_device_mapping_update(
+                context, root_bdm['id'], {'device_name': root_device_name})
+            device_names.append(root_device_name)
+            need_device_name.remove(root_bdm)
+
+        # Assign a device name to all unnamed BDMs by asking
+        # the driver for the right name.
+        for bdm in need_device_name:
+            dev_type = bdm['device_type']
+            device_name = self._get_next_device_name(
+                instance, image, dev_type, device_names, root_device_name)
+            bdm['device_name'] = device_name
+            self.conductor_api.block_device_mapping_update(
+                context, bdm['id'], {'device_name': device_name})
+            device_names.append(device_name)
 
     def _prep_block_device(self, context, instance, bdms):
         """Set up the block device for an instance with error logging."""

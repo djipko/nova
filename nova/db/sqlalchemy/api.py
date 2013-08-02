@@ -3334,10 +3334,15 @@ def block_device_mapping_update_or_create(context, values, legacy=True):
     _scrub_empty_str_values(values, ['volume_size'])
     session = get_session()
     with session.begin():
-        result = _block_device_mapping_get_query(context, session=session).\
-                 filter_by(instance_uuid=values['instance_uuid']).\
-                 filter_by(device_name=values['device_name']).\
-                 first()
+        result = None
+        # NOTE(xqueralt): Only update when device_name is provided. We want to
+        # allow empty device names that will be set by the driver later.
+        if values['device_name']:
+            result = (
+                _block_device_mapping_get_query(context, session=session).
+                filter_by(instance_uuid=values['instance_uuid']).
+                filter_by(device_name=values['device_name']).
+                first())
         if not result:
             values = _from_legacy_values(values, legacy)
             bdm_ref = models.BlockDeviceMapping()
