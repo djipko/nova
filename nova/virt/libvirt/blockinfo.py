@@ -78,23 +78,6 @@ from nova.virt import driver
 CONF = cfg.CONF
 
 
-def has_disk_dev(mapping, disk_dev):
-    """Determine if a disk device name has already been used.
-
-       Looks at all the keys in mapping to see if any
-       corresponding disk_info tuple has a device name
-       matching disk_dev
-
-       Returns True if the disk_dev is in use.
-    """
-
-    for disk in mapping:
-        info = mapping[disk]
-        if info['dev'] == disk_dev:
-            return True
-    return False
-
-
 def get_dev_prefix_for_disk_bus(disk_bus):
     """Determine the dev prefix for a disk bus.
 
@@ -146,13 +129,13 @@ def get_dev_count_for_disk_bus(disk_bus):
         return 26
 
 
-def find_disk_dev_for_disk_bus(mapping, bus, last_device=False):
+def find_disk_dev_for_disk_bus(disk_list, bus, last_device=False):
     """Identify a free disk dev name for a bus.
 
        Determines the possible disk dev names for
        the bus, and then checks them in order until
        it identifies one that is not yet used in the
-       disk mapping. If 'last_device' is set, it will
+       disk list. If 'last_device' is set, it will
        only consider the last available disk dev name.
 
        Returns the chosen disk_dev name, or raises an
@@ -171,7 +154,7 @@ def find_disk_dev_for_disk_bus(mapping, bus, last_device=False):
 
     for idx in devs:
         disk_dev = dev_prefix + chr(ord('a') + idx)
-        if not has_disk_dev(mapping, disk_dev):
+        if disk_dev not in disk_list:
             return disk_dev
 
     raise exception.NovaException(
@@ -283,7 +266,9 @@ def get_next_disk_info(mapping, disk_bus,
        Returns the disk_info for the next available disk.
     """
 
-    disk_dev = find_disk_dev_for_disk_bus(mapping,
+    disk_list = [info['dev'] for info in mapping.values()]
+
+    disk_dev = find_disk_dev_for_disk_bus(disk_list,
                                           disk_bus,
                                           last_device)
     return {'bus': disk_bus,

@@ -4065,6 +4065,12 @@ class LibvirtDriver(driver.ComputeDriver):
     def inject_network_info(self, instance, nw_info):
         self.firewall_driver.setup_basic_filtering(instance, nw_info)
 
+    def get_next_device_name(self, device_type, image, mapping):
+        disk_bus = blockinfo.get_disk_bus_for_device_type(
+                CONF.libvirt_type, image, device_type or 'disk')
+
+        return blockinfo.find_disk_dev_for_disk_bus(mapping, disk_bus)
+
 
 class HostState(object):
     """Manages information about the compute node through libvirt."""

@@ -87,27 +87,16 @@ class LibvirtBlockInfoTest(test.TestCase):
         _assert_volume_in_mapping('sdh1', False)
 
     def test_find_disk_dev(self):
-        mapping = {
-            "disk.local": {
-                'dev': 'sda',
-                'bus': 'scsi',
-                'type': 'disk',
-                },
-            "disk.swap": {
-                'dev': 'sdc',
-                'bus': 'scsi',
-                'type': 'disk',
-                },
-            }
+        disk_list = ['sda', 'sdc']
 
-        dev = blockinfo.find_disk_dev_for_disk_bus(mapping, 'scsi')
+        dev = blockinfo.find_disk_dev_for_disk_bus(disk_list, 'scsi')
         self.assertEqual(dev, 'sdb')
 
-        dev = blockinfo.find_disk_dev_for_disk_bus(mapping, 'scsi',
+        dev = blockinfo.find_disk_dev_for_disk_bus(disk_list, 'scsi',
                                                    last_device=True)
         self.assertEqual(dev, 'sdz')
 
-        dev = blockinfo.find_disk_dev_for_disk_bus(mapping, 'virtio')
+        dev = blockinfo.find_disk_dev_for_disk_bus(disk_list, 'virtio')
         self.assertEqual(dev, 'vda')
 
     def test_get_next_disk_dev(self):
