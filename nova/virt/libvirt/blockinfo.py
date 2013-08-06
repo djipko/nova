@@ -51,17 +51,24 @@ variables / types used
       'root' -> disk_info
 
 
- * 'disk_info': a tuple specifying disk configuration
+ 'disk_info': a dictionary specifying disk configuration
 
-   It contains the following 3 fields
+   It always contains the following 3 fields
 
       (disk bus, disk dev, device type)
+
+    And may contain some optional fields
 
  * 'disk_bus': the guest bus type ('ide', 'virtio', 'scsi', etc)
 
  * 'disk_dev': the device name 'vda', 'hdc', 'sdf', 'xvde' etc
 
  * 'device_type': type of device eg 'disk', 'cdrom', 'floppy'
+
+
+ Optionally 'disk_info' can also contain
+
+ * 'format': which format to use for the device if applicable
 
 """
 
@@ -276,8 +283,8 @@ def get_next_disk_info(mapping, disk_bus,
             'type': device_type}
 
 
-def get_eph_disk(ephemeral):
-    return 'disk.eph' + str(ephemeral['num'])
+def get_eph_disk(num):
+    return 'disk.eph' + str(num)
 
 
 def get_config_drive_type():
@@ -298,6 +305,41 @@ def get_config_drive_type():
             format=CONF.config_drive_format)
 
     return config_drive_type
+
+
+def get_info_from_bdm(virt_type, bdm, disk_bus=None,
+                      dev_type=None, allowed_types=None):
+    allowed_types = allowed_types or ('disk', 'cdrom', 'floppy', 'mmc')
+
+    bdm_bus = disk_bus or bdm.get('disk_bus')
+    if not is_disk_bus_valid_for_virt(root_bus, virt_type):
+        bdm_bus = get_disk_bus_for_disk_dev(virt_type,
+                                             bdm['device_name'])
+    bdm_type = dev_type or bdm.get('device_type')
+    if bdm_type not in allowed_types:
+        bdm_type = 'disk'
+
+    bdm_info = {'bus': bdm_bus,
+                'dev': block_device.strip_dev(bdm['device_name']),
+                'type': bdm_type}
+
+    bdm_format = bdm.get('guest_format')
+    if bdm_format:
+        bdm_info.update({'format': bdm_format})
+
+    return bdm_info
+
+
+def get_root_info(virt_type, block_device_info):
+    try:
+        root_bdm = (bdm for bdm in driver.block_device_info_get_mapping(
+                                    block_device_info)
+                    if bdm.get('boot_index') == 0).next()
+    except StopIteration:
+        return None
+
+    return get_info_from_bdm(virt_type, root_bdm,
+                             allowed_types=('disk', 'cdrom'))
 
 
 def get_disk_mapping(virt_type, instance,
@@ -345,77 +387,70 @@ def get_disk_mapping(virt_type, instance,
 
         return mapping
 
-    if image_meta and image_meta.get('disk_format') == 'iso':
-        root_disk_bus = cdrom_bus
-        root_device_type = 'cdrom'
-    else:
-        root_disk_bus = disk_bus
-        root_device_type = 'disk'
 
-    root_device_name = driver.block_device_info_get_root(block_device_info)
-    if root_device_name is not None:
-        root_device = block_device.strip_dev(root_device_name)
-        root_info = {'bus': get_disk_bus_for_disk_dev(virt_type,
-                                                      root_device),
+    root_info = get_root_info(virt_type, block_device_info)
+    # NOTE (ndipanov): Since we can't handle image bdms yet
+    #                  default by checking if image_meta was
+    #                  passed.
+    if not root_info and image_meta:
+        if image_meta.get('disk_format') == 'iso':
+            root_disk_bus = cdrom_bus
+            root_device_type = 'cdrom'
+        else:
+            root_disk_bus = disk_bus
+            root_device_type = 'disk'
+
+            root_device_name = (
+                driver.block_device_info_get_root(block_device_info) or
+                find_disk_dev_for_disk_bus([], root_disk_bus))
+
+        root_info = {'bus': root_disk_bus,
                      'dev': root_device,
                      'type': root_device_type}
     else:
-        root_info = get_next_disk_info(mapping,
-                                       root_disk_bus,
-                                       root_device_type)
+        raise exception.NovaException(
+            _("Unable to determine boot device"))
+
     mapping['root'] = root_info
     if not block_device.volume_in_mapping(root_info['dev'],
                                           block_device_info):
         mapping['disk'] = root_info
 
-    eph_info = get_next_disk_info(mapping,
-                                  disk_bus)
-    ephemeral_device = False
-    if not (block_device.volume_in_mapping(eph_info['dev'],
-                                           block_device_info) or
-            0 in [eph['num'] for eph in
-                  driver.block_device_info_get_ephemerals(
-                block_device_info)]):
-        if instance['ephemeral_gb'] > 0:
-            ephemeral_device = True
+    #eph_info = get_next_disk_info(mapping,
+    #                              disk_bus)
+    #ephemeral_device = False
+    #if not (block_device.volume_in_mapping(eph_info['dev'],
+    #                                       block_device_info) or
+    #        0 in [eph['num'] for eph in
+    #              driver.block_device_info_get_ephemerals(
+    #            block_device_info)]):
+    #    if instance['ephemeral_gb'] > 0:
+    #        ephemeral_device = True
+    #
+    #if ephemeral_device:
+    #    mapping['disk.local'] = eph_info
 
-    if ephemeral_device:
-        mapping['disk.local'] = eph_info
-
-    for eph in driver.block_device_info_get_ephemerals(
-            block_device_info):
-        disk_dev = block_device.strip_dev(eph['device_name'])
-        disk_bus = get_disk_bus_for_disk_dev(virt_type, disk_dev)
-
-        mapping[get_eph_disk(eph)] = {'bus': disk_bus,
-                                      'dev': disk_dev,
-                                      'type': 'disk'}
+    for num, eph in enumerate(driver.block_device_info_get_ephemerals(
+            block_device_info)):
+        mapping[get_eph_disk(num)] = get_info_from_bdm(eph)
 
     swap = driver.block_device_info_get_swap(block_device_info)
     if driver.swap_is_usable(swap):
-        disk_dev = block_device.strip_dev(swap['device_name'])
-        disk_bus = get_disk_bus_for_disk_dev(virt_type, disk_dev)
-
-        mapping['disk.swap'] = {'bus': disk_bus,
-                                'dev': disk_dev,
-                                'type': 'disk'}
-    elif inst_type['swap'] > 0:
-        swap_info = get_next_disk_info(mapping,
-                                       disk_bus)
-        if not block_device.volume_in_mapping(swap_info['dev'],
-                                              block_device_info):
-            mapping['disk.swap'] = swap_info
+        mapping['disk.swap'] = get_info_from_bdm(swap)
+    #elif inst_type['swap'] > 0:
+    #    swap_info = get_next_disk_info(mapping,
+    #                                   disk_bus)
+    #    if not block_device.volume_in_mapping(swap_info['dev'],
+    #                                          block_device_info):
+    #        mapping['disk.swap'] = swap_info
 
     block_device_mapping = driver.block_device_info_get_mapping(
         block_device_info)
 
     for vol in block_device_mapping:
-        disk_dev = vol['mount_device'].rpartition("/")[2]
-        disk_bus = get_disk_bus_for_disk_dev(virt_type, disk_dev)
+        mapping[vol['mount_device']] = get_info_from_bdm(vol)
 
-        mapping[vol['mount_device']] = {'bus': disk_bus,
-                                        'dev': disk_dev,
-                                        'type': 'disk'}
+    # TODO (ndipanov): Tomorrow add ephemeral and swap
 
     if configdrive.required_by(instance):
         device_type = get_config_drive_type()
