@@ -1275,25 +1275,29 @@ class ComputeManager(manager.SchedulerDependentManager):
         try:
             block_device_info = {
                 'root_device_name': instance['root_device_name'],
-                'swap': driver_block_device.get_swap(
-                    driver_block_device.legacy_block_devices(
-                        driver_block_device.convert_swap(bdms))),
-                'ephemerals': driver_block_device.legacy_block_devices(
-                    driver_block_device.convert_ephemerals(bdms)),
-                'block_device_mapping':
-                    (driver_block_device.legacy_block_devices(
-                            driver_block_device.attach_block_devices(
-                                driver_block_device.convert_volumes(bdms),
-                                context, instance, self.volume_api,
-                                self.driver, self.conductor_api)) +
-                     driver_block_device.legacy_block_devices(
-                            driver_block_device.attach_block_devices(
-                                driver_block_device.convert_snapshots(bdms),
-                                context, instance, self.volume_api,
-                                self.driver, self.conductor_api,
-                                self._await_block_device_map_created)))
+                'swap': driver_block_device.convert_swap(bdms),
+                'ephemerals': driver_block_device.convert_ephemerals(bdms),
+                'block_device_mapping': (
+                    driver_block_device.attach_block_devices(
+                        driver_block_device.convert_volumes(bdms),
+                        context, instance, self.volume_api,
+                        self.driver, self.conductor_api) +
+                    driver_block_device.attach_block_devices(
+                        driver_block_device.convert_snapshots(bdms),
+                        context, instance, self.volume_api,
+                        self.driver, self.conductor_api,
+                        self._await_block_device_map_created))
             }
 
+            if self.use_legacy_block_device_info:
+                for bdm_type in ('swap', 'ephemerals', 'block_device_mapping'):
+                    block_device_info[bdm_type] = \
+                        driver_block_device.legacy_block_devices(
+                        block_device_info[bdm_type])
+
+            # Get swap out of the list
+            block_device_info['swap'] = driver_block_device.get_swap(
+                block_device_info['swap'])
             return block_device_info
 
         except Exception:
