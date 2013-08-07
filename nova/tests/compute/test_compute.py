@@ -5366,103 +5366,74 @@ class ComputeTestCase(BaseTestCase):
         event = LifecycleEvent('does-not-exist', EVENT_LIFECYCLE_STOPPED)
         self.compute.handle_events(event)
 
-    def _check_duplicated_device_name(self, bdms):
-        device_names = [bdm['device_name'] for bdm in bdms]
-        # Verify that all devices are set
-        self.assertTrue(all(device_names))
-        # Verify that no device has been repeated
-        self.assertEqual(sorted(list(set(device_names))), sorted(device_names))
+    def _get_instance_and_bdm_for_dev_defaults_tests(self):
+        instance = self._create_fake_instance(
+            params={'root_device_name': '/dev/vda'})
+        block_device_mapping = [
+            {'id': 3, 'instance_uuid': 'fake-instance',
+             'device_name': '/dev/vda',
+             'source_type': 'volume',
+             'destination_type': 'volume',
+             'image_id': 'fake-image-id-1',
+             'boot_index': 0}]
 
-    def _get_bdms(self, num):
-        bdms = []
-        for bdm_id in range(num):
-            bdm_dict = {
-                'id': bdm_id, 'device_name': None, 'boot_index': -1,
-                'source_type': 'volume', 'destination_type': 'volume',
-                'device_type': 'disk', 'no_device': False,
-                'volume_id': 'fake-vol', 'image_id': None,
-                'snapshot_id': None, 'disk_bus': None,
-            }
-            bdms.append(bdm_dict)
-        return bdms
+        return instance, block_device_mapping
 
-    def test_fix_block_device_names_all_set(self):
-        block_device_mapping = self._get_bdms(4)
-        block_device_mapping[0]['boot_index'] = 0
-        block_device_mapping[0]['device_name'] = '/dev/sda1'
-        block_device_mapping[0]['device_name'] = '/dev/sdb2'
-        block_device_mapping[0]['device_name'] = '/dev/sdc1'
-        block_device_mapping[0]['device_name'] = '/dev/sdd1'
-
-        image = {}
-        instance = self._create_fake_instance()
-
-        self.compute._fix_block_device_names(self.context, instance,
-                                             image, block_device_mapping)
-
-        self._check_duplicated_device_name(block_device_mapping)
-
-    def test_fix_block_device_names_no_devices(self):
-        block_device_mapping = self._get_bdms(2)
-        block_device_mapping[0]['boot_index'] = 0
-
-        image = {}
-        instance = self._create_fake_instance()
+    def test_default_block_device_names_empty_instance_root_dev(self):
+        instance, bdms = self._get_instance_and_bdm_for_dev_defaults_tests()
         instance['root_device_name'] = None
-
-        self.mox.StubOutWithMock(
-            self.compute.conductor_api, 'instance_update')
-        self.mox.StubOutWithMock(
-            self.compute.conductor_api, 'block_device_mapping_update')
-
-        self.compute.conductor_api.instance_update(
-            self.context, instance['uuid'], root_device_name='/dev/sda')
-
-        for i in range(len(block_device_mapping)):
-            self.compute.conductor_api.block_device_mapping_update(
-                mox.IgnoreArg(), mox.IgnoreArg(), mox.IgnoreArg())
-
+        self.mox.StubOutWithMock(self.compute, '_instance_update')
+        self.mox.StubOutWithMock(self.compute,
+                                 '_default_device_names_for_instance')
+        self.compute._instance_update(self.context, instance['uuid'],
+                                      root_device_name='/dev/vda')
+        self.compute._default_device_names_for_instance(instance,
+                                                        '/dev/vda',
+                                                        mox.IgnoreArg(),
+                                                        [], [], bdms)
         self.mox.ReplayAll()
-        self.compute._fix_block_device_names(self.context, instance,
-                                             image, block_device_mapping)
-        self.mox.VerifyAll()
+        self.compute._default_block_device_names(self.context, instance, bdms)
 
-        self._check_duplicated_device_name(block_device_mapping)
-
-        self.assertEqual(block_device_mapping[0]['device_name'],
-                         instance['root_device_name'])
-
-    def test_fix_block_device_names_no_root_device(self):
-        block_device_mapping = self._get_bdms(4)
-        block_device_mapping[0]['boot_index'] = 0
-        block_device_mapping[1]['device_name'] = '/dev/sdb'
-        block_device_mapping[2]['device_name'] = '/dev/sdc'
-        block_device_mapping[3]['device_name'] = '/dev/sdd'
-
-        image = {}
-        instance = self._create_fake_instance()
-        instance['root_device_name'] = None
-
-        self.mox.StubOutWithMock(
-            self.compute.conductor_api, 'instance_update')
-        self.mox.StubOutWithMock(
-            self.compute.conductor_api, 'block_device_mapping_update')
-
-        self.compute.conductor_api.instance_update(
-            self.context, instance['uuid'], root_device_name='/dev/sda')
-
+    def test_default_block_device_names_empty_root_device(self):
+        instance, bdms = self._get_instance_and_bdm_for_dev_defaults_tests()
+        bdms[0]['device_name'] = None
+        self.mox.StubOutWithMock(self.compute.conductor_api,
+                                 'block_device_mapping_update')
+        self.mox.StubOutWithMock(self.compute,
+                                 '_default_device_names_for_instance')
         self.compute.conductor_api.block_device_mapping_update(
-            mox.IgnoreArg(), mox.IgnoreArg(), mox.IgnoreArg())
-
+            self.context, bdms[0]['id'], {'device_name': '/dev/vda'})
+        self.compute._default_device_names_for_instance(instance,
+                                                        '/dev/vda',
+                                                        mox.IgnoreArg(),
+                                                        [], [], bdms)
         self.mox.ReplayAll()
-        self.compute._fix_block_device_names(self.context, instance,
-                                             image, block_device_mapping)
-        self.mox.VerifyAll()
+        self.compute._default_block_device_names(self.context, instance, bdms)
 
-        self._check_duplicated_device_name(block_device_mapping)
+    def test_default_block_device_names_no_root_device(self):
+        instance, bdms = self._get_instance_and_bdm_for_dev_defaults_tests()
+        instance['root_device_name'] = None
+        bdms[0]['device_name'] = None
+        self.mox.StubOutWithMock(self.compute, '_instance_update')
+        self.mox.StubOutWithMock(self.compute.conductor_api,
+                                 'block_device_mapping_update')
+        self.mox.StubOutWithMock(self.compute,
+                                 '_default_root_device_name')
+        self.mox.StubOutWithMock(self.compute,
+                                 '_default_device_names_for_instance')
 
-        self.assertEqual(block_device_mapping[0]['device_name'],
-                         instance['root_device_name'])
+        self.compute._default_root_device_name(instance,
+                                               bdms[0]).AndReturn('/dev/vda')
+        self.compute._instance_update(self.context, instance['uuid'],
+                                      root_device_name='/dev/vda')
+        self.compute.conductor_api.block_device_mapping_update(
+            self.context, bdms[0]['id'], {'device_name': '/dev/vda'})
+        self.compute._default_device_names_for_instance(instance,
+                                                        '/dev/vda',
+                                                        mox.IgnoreArg(),
+                                                        [], [], bdms)
+        self.mox.ReplayAll()
+        self.compute._default_block_device_names(self.context, instance, bdms)
 
 
 class ComputeAPITestCase(BaseTestCase):

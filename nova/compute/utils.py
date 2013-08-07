@@ -16,6 +16,7 @@
 
 """Compute-related Utilities and helpers."""
 
+import itertools
 import re
 import string
 import traceback
@@ -118,6 +119,60 @@ def get_device_name_for_instance(context, instance, bdms, device):
     mappings = block_device.instance_block_mapping(instance, bdms)
     return get_next_device_name(instance, mappings.values(),
                                 mappings['root'], device)
+
+
+def default_device_names_for_instance(instance, root_device_name,
+                                      update_function, *block_device_lists):
+    """Generate missing device names for an instance."""
+
+    def _device_names(iterables):
+        return [bdm['device_name']
+                for bdm in itertools.chain(*iterables) if bdm['device_name']]
+
+    dev_list = _device_names(block_device_lists)
+    if root_device_name not in dev_list:
+        dev_list.append(root_device_name)
+    inst_type = flavors.extract_flavor(instance)
+
+    is_libvirt = driver.compute_driver_matches('libvirt.LibvirtDriver')
+    libvirt_default_ephemerals = []
+
+    bdm_named_lists = zip(('ephemerals', 'swap', 'block_device_mapping'),
+        block_device_lists)
+
+    for name, bdm_list in bdm_named_lists:
+        # Libvirt will create a default ephemeral if instance allows
+        # and was not overriden.
+        if (is_libvirt and name == 'ephemerals' and not bdm_list and
+                inst_type['ephemeral_gb'] > 0):
+            default_eph = get_next_device_name(instance,
+                                               [root_device_name],
+                                               root_device_name)
+            if default_eph not in dev_list:
+                dev_list.append(default_eph)
+                libvirt_default_ephemerals.append(default_eph)
+
+        # Libvirt will default swap if in isntance type has it and it was
+        # not supplied or overriden
+        if (is_libvirt and name == 'swap' and not bdm_list and
+                inst_type['swap'] > 0):
+
+            ephemerals = (_device_names(bdm_named_lists[0][1]) or
+                          libvirt_default_ephemerals)
+            default_swap = get_next_device_name(instance,
+                    [root_device_name] + ephemerals, root_device_name)
+            if default_swap not in dev_list:
+                dev_list.append(default_swap)
+
+        for bdm in bdm_list:
+            dev = bdm.get('device_name')
+            if not dev:
+                dev = get_next_device_name(instance, dev_list,
+                                           root_device_name)
+                bdm['device_name'] = dev
+                if update_function:
+                    update_function(bdm)
+                dev_list.append(dev)
 
 
 def get_next_device_name(instance, device_name_list,

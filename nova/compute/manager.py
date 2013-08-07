@@ -40,6 +40,7 @@ import uuid
 from eventlet import greenthread
 from oslo.config import cfg
 
+from nova import block_device
 from nova.cells import rpcapi as cells_rpcapi
 from nova.cloudpipe import pipelib
 from nova import compute
@@ -1012,7 +1013,7 @@ class ComputeManager(manager.SchedulerDependentManager):
 
         # Verify that all the BDMs have a device_name set and assign a default
         # one to the ones missing it with the help of the driver.
-        self._fix_block_device_names(context, instance, image_meta, bdms)
+        self._default_block_device_names(context, instance, bdms)
 
         # b64 decode the files to inject:
         injected_files_orig = injected_files
@@ -1274,83 +1275,88 @@ class ComputeManager(manager.SchedulerDependentManager):
                 self._allocate_network_async, context, instance,
                 requested_networks, macs, security_groups, is_vpn)
 
-    def _get_next_device_name(self, instance, image, device_type, disk_bus,
-                              device_name_list, root_device_name):
-        """Ask the driver to provide a device_name and, if that
-        Wrapper for the driver method get_next_device_name that will
-        fallback to the more generic method in
-        """
+    def _default_root_device_name(self, instance, root_bdm):
         try:
-            return self.driver.get_next_device_name(
-                device_type, disk_bus, image, device_name_list)
+            return self.driver.default_root_device_name(instance, root_bdm)
         except NotImplementedError:
-            return compute_utils.get_next_device_name(
-                instance, device_name_list, root_device_name)
+            return compute_utils.get_next_device_name(instance, [])
 
-    def _fix_block_device_names(self, context, instance, image, block_devices):
+    def _default_device_names_for_instance(self, instance,
+                                           root_device_name,
+                                           update_function,
+                                           *block_device_lists):
+        try:
+            self.driver.default_device_names_for_instance(instance,
+                                                          root_device_name,
+                                                          *block_device_lists)
+        except NotImplementedError:
+            compute_utils.default_device_names_for_instance(
+                instance, root_device_name,
+                update_function, *block_device_lists)
+
+    def _default_block_device_names(self, context, instance, block_devices):
         """Verify that all the devices have the device_name set. If not,
         provide a default name.
 
         It also ensures that there is a root_device_name and is set to the
         first block device in the boot sequence (boot_index=0).
         """
-        root_device_name = instance['root_device_name']
-
-        root_bdm = None
-        device_name_list = []
-        unnamed_devices = []
-
-        for bdm in block_devices:
-            # Collect all the used device names to prevent duplicates
-            if bdm['device_name']:
-                device_name_list.append(bdm['device_name'])
-            else:
-                unnamed_devices.append(bdm)
-
-            if bdm['boot_index'] == 0:
-                root_bdm = bdm
-
-        # NOTE(xqueralt): skip if no device requires being named
-        if not unnamed_devices:
+        try:
+            root_bdm = (bdm for bdm in block_devices
+                        if bdm['boot_index'] == 0).next()
+        except StopIteration:
             return
 
         # Get the root_device_name from the root BDM or the instance
-        root_device_name = root_bdm['device_name'] or root_device_name
+        root_device_name = None
+        update_instance = False
+        update_root_bdm = False
 
-        if not root_device_name:
-            # Reserve the first device name for the root BDM
-            device_type = bdm['device_type']
-            disk_bus = bdm['disk_bus']
-            root_device_name = self._get_next_device_name(
-                instance, image, device_type, disk_bus,
-                device_name_list, root_device_name
-            )
-            # Associate the selected root device name to the instance
+        if root_bdm['device_name']:
+            root_device_name = root_bdm['device_name']
             instance['root_device_name'] = root_device_name
-            self.conductor_api.instance_update(
-                context, instance['uuid'], root_device_name=root_device_name)
-
-        # Make sure that the root BDM has the proper device_name set
-        if not root_bdm['device_name']:
+            update_instance = True
+        elif instance['root_device_name']:
+            root_device_name = instance['root_device_name']
             root_bdm['device_name'] = root_device_name
+            update_root_bdm = True
+        else:
+            root_device_name = self._default_root_device_name(instance,
+                                                              root_bdm)
+
+            instance['root_device_name'] = root_device_name
+            root_bdm['device_name'] = root_device_name
+            update_instance = update_root_bdm = True
+
+        if update_instance:
+            self._instance_update(context, instance['uuid'],
+                                  root_device_name=root_device_name)
+        if update_root_bdm:
             self.conductor_api.block_device_mapping_update(
                 context, root_bdm['id'], {'device_name': root_device_name})
-            device_name_list.append(root_device_name)
-            unnamed_devices.remove(root_bdm)
 
-        # Assign a device name to all unnamed BDMs by asking
-        # the driver for the right name.
-        for bdm in unnamed_devices:
-            device_type = bdm['device_type']
-            disk_bus = bdm['disk_bus']
-            device_name = self._get_next_device_name(
-                instance, image, device_type, disk_bus,
-                device_name_list, root_device_name
-            )
-            bdm['device_name'] = device_name
+        def _is_mapping(bdm):
+            # NOTE (ndipanov): Don't take into account image bdms
+            #                  as no driver implements them yet
+            return bdm['source_type'] in ('volume', 'snapshot')
+
+        ephemerals = filter(block_device.new_format_is_ephemeral,
+                            block_devices)
+        swap = filter(block_device.new_format_is_swap,
+                      block_devices)
+        block_device_mapping = filter(_is_mapping, block_devices)
+
+        def _update_bdm(bdm_for_update):
             self.conductor_api.block_device_mapping_update(
-                context, bdm['id'], {'device_name': device_name})
-            device_name_list.append(device_name)
+                context, instance['uuid'], bdm_for_update['id'],
+                bdm_for_update['device_name'])
+
+        self._default_device_names_for_instance(instance,
+                                                root_device_name,
+                                                _update_bdm,
+                                                ephemerals,
+                                                swap,
+                                                block_device_mapping)
 
     def _prep_block_device(self, context, instance, bdms):
         """Set up the block device for an instance with error logging."""
