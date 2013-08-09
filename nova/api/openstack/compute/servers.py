@@ -867,14 +867,6 @@ class Controller(wsgi.Controller):
                 # Assume legacy format
                 legacy_bdm = not bool(block_device_mapping_v2)
 
-                # NOTE (ndipanov) Don't allow empty device_name values
-                #                 for now until we can handle it on the
-                #                 compute side.
-                if any('device_name' not in bdm
-                       for bdm in block_device_mapping_v2):
-                    expl = _('Missing device_name in some block devices.')
-                    raise exc.HTTPBadRequest(explanation=expl)
-
                 try:
                     block_device_mapping_v2 = [
                         block_device.BlockDeviceDict.from_api(bdm_dict)
