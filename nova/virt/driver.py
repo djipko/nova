@@ -989,6 +989,15 @@ class ComputeDriver(object):
         """
         return True
 
+    def default_root_device_name(self, instance, root_bdm):
+        """Provide a default root device name for the driver."""
+        raise NotImplementedError()
+
+    def default_device_names_for_instance(self, instance, root_device_name,
+                                          *block_device_lists):
+        """Default the missing device names in the block device mapping."""
+        raise NotImplementedError()
+
 
 def load_compute_driver(virtapi, compute_driver=None):
     """Load a compute driver module.
