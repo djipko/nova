@@ -989,7 +989,7 @@ class ComputeDriver(object):
         """
         return True
 
-    def default_root_device_name(self, instance, root_bdm):
+    def default_root_device_name(self, instance, **kwargs):
         """Provide a default root device name for the driver."""
         raise NotImplementedError()
 

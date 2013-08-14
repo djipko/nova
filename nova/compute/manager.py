@@ -373,6 +373,12 @@ class ComputeVirtAPI(virtapi.VirtAPI):
         return self._compute.conductor_api.instance_type_get(context,
                                                              instance_type_id)
 
+    def block_device_mapping_update(self, context, bdm):
+        bdm_id = bdm.get('id')
+        if bdm_id:
+            self._compute.conductor_api.block_device_mapping_update(
+                context, bdm_id, bdm)
+
 
 class ComputeManager(manager.SchedulerDependentManager):
     """Manages the running instances from creation to destruction."""

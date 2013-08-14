@@ -4105,6 +4105,30 @@ class LibvirtDriver(driver.ComputeDriver):
         LOG.info(_('Deletion of %s complete'), target, instance=instance)
         return True
 
+    def default_root_device_name(self, instance, image_meta, root_bdm):
+
+        disk_bus = blockinfo.get_disk_bus_for_device_type(CONF.libvirt_type,
+                                                          image_meta,
+                                                          "disk")
+        cdrom_bus = blockinfo.get_disk_bus_for_device_type(conf.libvirt_type,
+                                                           image_meta,
+                                                           "cdrom")
+        root_info = blockinfo.get_root_info(CONF.libvirt_type,
+                                            image_meta, root_bdm,
+                                            disk_bus, cdrom_bus)
+        return root_info['dev']
+
+    def default_device_names_for_instance(instance, root_device_name,
+                                          *block_device_lists):
+        ephemerals, swap, block_device_mapping = block_device_lists[:3]
+
+        update_func = functools.partial(
+            self.virtapi.block_device_mapping_update,
+            nova_context.get_admin_context())
+
+        blockinfo.default_device_names(instance, root_device_name,
+                                       ephemerals, swap, block_device_mapping)
+
 
 class HostState(object):
     """Manages information about the compute node through libvirt."""
