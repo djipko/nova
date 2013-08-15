@@ -324,23 +324,28 @@ def get_info_from_bdm(virt_type, bdm, mapping, disk_bus=None,
                       dev_type=None, allowed_types=None,
                       assigned_devices=None):
     allowed_types = allowed_types or SUPPORTED_DEVICE_TYPES
-    device_name = get_device_name(bdm)
-
-    bdm_bus = bdm.get('disk_bus') or disk_bus
-    if not is_disk_bus_valid_for_virt(bdm_bus, virt_type):
-        bdm_bus = get_disk_bus_for_disk_dev(virt_type, device_name)
+    device_name = block_device.strip_dev(get_device_name(bdm))
 
     bdm_type = bdm.get('device_type') or dev_type
     if bdm_type not in allowed_types:
         bdm_type = 'disk'
 
+    bdm_bus = bdm.get('disk_bus') or disk_bus
+    if not is_disk_bus_valid_for_virt(virt_type, bdm_bus):
+        if device_name:
+            bdm_bus = get_disk_bus_for_disk_dev(virt_type, device_name)
+        else:
+            bdm_bus = get_disk_bus_for_device_type(virt_type, None, bdm_type)
+
     if not device_name:
         if assigned_devices:
-            pre_assinged_mapping = dict((dev, {'dev': dev})
+            padded_mapping = dict((dev, {'dev': dev})
                 for dev in assigned_devices)
-            mapping = pre_assinged_mapping.update(mapping)
+            padded_mapping.update(mapping)
+        else:
+            padded_mapping = mapping
 
-        device_name = find_disk_dev_for_disk_bus(mapping, bdm_bus)
+        device_name = find_disk_dev_for_disk_bus(padded_mapping, bdm_bus)
 
     bdm_info = {'bus': bdm_bus,
                 'dev': device_name,
@@ -361,22 +366,41 @@ def get_device_name(bdm):
 def get_root_info(virt_type, image_meta, root_bdm, disk_bus, cdrom_bus,
                   root_device_name=None):
 
-    if not root_bdm or bdm.get('image_id'):
+    # NOTE (ndipanov): This is a hack to avoid considering an image
+    #                  BDM with local target, as we don't support them
+    #                  yet. Only aplies when passed non-driver format
+    no_root_bdm = (not root_bdm or (
+        root_bdm.get('source_type') == 'image' and
+        root_bdm.get('destination_type') == 'local'))
+    if no_root_bdm:
         if (image_meta and image_meta.get('disk_format') == 'iso'):
             root_device_bus = cdrom_bus
             root_device_type = 'cdrom'
         else:
-            root_disk_bus = disk_bus
+            root_device_bus = disk_bus
             root_device_type = 'disk'
+        if root_device_name:
+            root_device_bus = get_disk_bus_for_disk_dev(virt_type,
+                                                        root_device_name)
+        else:
+            root_device_name = find_disk_dev_for_disk_bus({}, root_device_bus)
     else:
-        root_device_bus = root_bdm.get('disk_bus') or disk_bus
         root_device_type = root_bdm.get('device_type')
-        root_device_name = get_device_name(root_bdm)
         if root_device_type not in SUPPORTED_DEVICE_TYPES:
             root_device_type = 'disk'
+        root_device_bus = root_bdm.get('disk_bus') or disk_bus
+        if not is_disk_bus_valid_for_virt(virt_type, root_device_bus):
+            root_device_bus = get_disk_bus_for_device_type(virt_type,
+                                                           None,
+                                                           root_device_type)
+        root_bdm_device_name = get_device_name(root_bdm)
 
-    if not root_device_name:
-        root_device_name = find_disk_dev_for_disk_bus({}, root_device_bus)
+        if not root_bdm_device_name:
+            root_device_name = (root_device_name or
+                                find_disk_dev_for_disk_bus(
+                                    {}, root_device_bus))
+        else:
+            root_device_name = root_bdm_device_name
 
     root_info = {'bus': root_device_bus,
                  'type': root_device_type,
@@ -502,8 +526,12 @@ def get_disk_mapping(virt_type, instance,
         # and they will not be in block_device_info list.
         root_bdm = None
 
-    mapping['root'] = get_root_info(virt_type, image_meta,
-                                    root_bdm, mapping)
+    root_device_name = block_device.strip_dev(
+        driver.block_device_info_get_root(block_device_info))
+    root_info = get_root_info(virt_type, image_meta, root_bdm,
+                              disk_bus, cdrom_bus, root_device_name)
+
+    mapping['root'] = root_info
     if not root_bdm:
         mapping['disk'] = root_info
 
@@ -515,7 +543,7 @@ def get_disk_mapping(virt_type, instance,
     for idx, eph in enumerate(driver.block_device_info_get_ephemerals(
             block_device_info)):
         eph_info = get_info_from_bdm(
-            virt_type, bdm, mapping, disk_bus,
+            virt_type, eph, mapping, disk_bus,
             assigned_devices=pre_assigned_device_names)
         mapping[get_eph_disk(idx)] = eph_info
         update_bdm(eph, eph_info)
@@ -523,7 +551,7 @@ def get_disk_mapping(virt_type, instance,
     swap = driver.block_device_info_get_swap(block_device_info)
     if swap and swap.get('swap_size', 0) > 0:
         swap_info = get_info_from_bdm(virt_type, swap, mapping, disk_bus)
-        mapping['disk_swap'] = swap_info
+        mapping['disk.swap'] = swap_info
         update_bdm(swap, swap_info)
     elif inst_type['swap'] > 0:
         swap_info = get_next_disk_info(mapping,
@@ -539,7 +567,7 @@ def get_disk_mapping(virt_type, instance,
         vol_info = get_info_from_bdm(
             virt_type, vol, mapping,
             assigned_devices=pre_assigned_device_names)
-        mapping[vol_info['dev']] = vol_info
+        mapping[block_device.prepend_dev(vol_info['dev'])] = vol_info
         update_bdm(vol, vol_info)
 
     if configdrive.required_by(instance):
