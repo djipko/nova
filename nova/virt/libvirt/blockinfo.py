@@ -384,29 +384,15 @@ def get_root_info(virt_type, image_meta, root_bdm, disk_bus, cdrom_bus,
                                                         root_device_name)
         else:
             root_device_name = find_disk_dev_for_disk_bus({}, root_device_bus)
+
+        return {'bus': root_device_bus,
+                'type': root_device_type,
+                'dev': block_device.strip_dev(root_device_name)}
     else:
-        root_device_type = root_bdm.get('device_type')
-        if root_device_type not in SUPPORTED_DEVICE_TYPES:
-            root_device_type = 'disk'
-        root_device_bus = root_bdm.get('disk_bus') or disk_bus
-        if not is_disk_bus_valid_for_virt(virt_type, root_device_bus):
-            root_device_bus = get_disk_bus_for_device_type(virt_type,
-                                                           None,
-                                                           root_device_type)
-        root_bdm_device_name = get_device_name(root_bdm)
-
-        if not root_bdm_device_name:
-            root_device_name = (root_device_name or
-                                find_disk_dev_for_disk_bus(
-                                    {}, root_device_bus))
-        else:
-            root_device_name = root_bdm_device_name
-
-    root_info = {'bus': root_device_bus,
-                 'type': root_device_type,
-                 'dev': block_device.strip_dev(root_device_name)}
-
-    return root_info
+        if not get_device_name(root_bdm) and root_device_name:
+            root_bdm = root_bdm.copy()
+            root_bdm['device_name'] = root_device_name
+        return get_info_from_bdm(virt_type, root_bdm, {})
 
 
 def default_device_names(instance, root_device_name, update_func,

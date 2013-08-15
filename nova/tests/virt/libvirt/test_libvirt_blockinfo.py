@@ -463,6 +463,44 @@ class LibvirtBlockInfoTest(test.TestCase):
             }
         self.assertEqual(mapping, expect)
 
+    def test_get_disk_mapping_updates_original(self):
+        user_context = context.RequestContext(self.user_id, self.project_id)
+        instance_ref = db.instance_create(user_context, self.test_instance)
+
+        block_device_info = {
+            'root_device_name': '/dev/vda',
+            'swap': {'device_name': '/dev/vdb',
+                     'device_type': 'really_lame_type',
+                     'swap_size': 10},
+            'ephemerals': [{'disk_bus': 'no_such_bus',
+                            'device_type': 'yeah_right',
+                            'device_name': '/dev/vdc', 'size': 10}],
+            'block_device_mapping': [
+                {'connection_info': "fake",
+                 'mount_device': None,
+                 'device_type': 'lawnmower',
+                 'delete_on_termination': True}]
+            }
+        expected_swap ={'device_name': '/dev/vdb', 'disk_bus': 'virtio',
+                        'device_type': 'disk', 'swap_size': 10},
+        expected_ephemeral = {'disk_bus': 'virtio',
+                              'device_type': 'disk',
+                              'device_name': '/dev/vdc', 'size': 10}
+        expected_bdm = {'connection_info': "fake",
+                        'mount_device': 'vdd',
+                        'device_type': 'disk',
+                        'disk_bus': 'virtio',
+                        'delete_on_termination': True}
+
+        blockinfo.get_disk_mapping("kvm", instance_ref,
+                                   "virtio", "ide", block_device_info)
+
+        self.assertEqual(expected_swap, block_device_info['swap'])
+        self.assertEqual(expected_ephemeral,
+                         block_device_info['ephemerals'][0])
+        self.assertEqual(expected_bdm,
+                         block_device_info['block_device_mapping'][0])
+
     def test_get_disk_bus(self):
         bus = blockinfo.get_disk_bus_for_device_type('kvm')
         self.assertEqual(bus, 'virtio')
@@ -582,6 +620,25 @@ class LibvirtBlockInfoTest(test.TestCase):
         blockinfo.get_root_info('kvm', None, None, 'virtio', 'ide',
                                  root_device_name='/dev/vda')
         mock_get_bus.assert_called_once_with('kvm', '/dev/vda')
-        
-        
 
+    @mock.patch('nova.virt.libvirt.blockinfo.get_info_from_bdm')
+    def test_get_root_info_bdm(self, mock_get_info):
+        root_bdm = {'mount_device': '/dev/vda',
+                    'disk_bus': 'scsi',
+                    'device_type':'disk'}
+        # No root_device_name
+        blockinfo.get_root_info('kvm', None, root_bdm, 'virtio', 'ide')
+        mock_get_info.assert_called_once_with('kvm', root_bdm, {})
+        mock_get_info.reset_mock()
+        # Both device names
+        blockinfo.get_root_info('kvm', None, root_bdm, 'virtio', 'ide',
+                                root_device_name='sda')
+        mock_get_info.assert_called_once_with('kvm', root_bdm, {})
+        mock_get_info.reset_mock()
+        del root_bdm['mount_device']
+        blockinfo.get_root_info('kvm', None, root_bdm, 'virtio', 'ide',
+                                root_device_name='sda')
+        mock_get_info.assert_called_once_with('kvm',
+                                              {'device_name': 'sda',
+                                               'disk_bus': 'scsi',
+                                               'device_type': 'disk'}, {})
