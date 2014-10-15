@@ -1763,3 +1763,12 @@ class InvalidToken(Invalid):
 
 class InvalidConnectionInfo(Invalid):
     msg_fmt = _("Invalid Connection Info")
+
+
+class CPUPinningIllegalTopology(Invalid):
+    msg_fmt = _("Topology thread count %(threads)s invalid for "
+                "vcpu set %(cpuset)s")
+
+
+class CPUPinningInvalidInstanceUsage(Invalid):
+    msg_fmt = _("Instance cpu pinning data is invalid for the host.")

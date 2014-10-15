@@ -13,6 +13,7 @@
 # under the License.
 
 import collections
+import itertools
 
 from oslo.config import cfg
 from oslo.serialization import jsonutils
@@ -926,6 +927,226 @@ class VirtNUMAHostTopology(VirtNUMATopology):
                     claimed_cell.cpu_usage > limit_cell.cpu_limit):
                 return (_("Requested instance NUMA topology is too large for "
                           "the given host NUMA topology limits."))
+
+
+class VirtInstanceCPUPinning(object):
+    def __init__(self, cpuset, pinning=None, topology=None):
+        """Create an object containing instance CPU pinning data
+
+        :param cpuset: A set of vCPU ids of the instance
+        :param pinning: A dictionary mapping instance vCPU id to the host pCPU
+                        it is pinned to
+        :param topology: A VirtCPUTopology instance
+
+        We will use topology to figure out siblings
+        """
+        pinning = pinning or {}
+        self.topology = topology or None
+
+        num_threads = 1
+        if self.topology:
+            num_threads = self.topology.threads
+        if num_threads != 0 and len(cpuset) % num_threads != 0:
+            raise exception.CPUPinningIllegalTopology(threads=num_threads,
+                                                      cpuset=cpuset)
+
+        self.pinning = dict(zip(cpuset, itertools.repeat(None)))
+        self.pinning.update(dict((cpu, pin) for cpu, pin in pinning.items()
+                                 if cpu in cpuset))
+
+    def __len__(self):
+        return len(self.pinning)
+
+    @property
+    def cpuset(self):
+        return set(self.pinning.keys())
+
+    @property
+    def siblings(self):
+        cpu_list = sorted(list(self.cpuset))
+
+        threads = 0
+        if self.topology:
+            threads = self.topology.threads
+        if threads == 1:
+            threads = 0
+
+        return map(set, zip(*[iter(cpu_list)] * threads))
+
+
+class VirtHostCPUPinning(object):
+    def __init__(self, cpuset, pinning=None, siblings=None):
+        """Create an object containing host CPU pinning data
+
+        :param cpuset: A set of pCPU ids of the host
+        :param pinning: A set of "taken" pCPU ids that have instance
+                        vCPUs pinned to them
+        :param siblings: A list of sets of pCPU ids each representing a set
+                         of sibling cores
+        """
+
+        pinning = pinning or set()
+
+        self.pinning = dict(zip(cpuset, itertools.repeat(False)))
+        self.pinning.update(dict((cpu, True) for cpu in pinning
+                            if cpu in cpuset))
+        self.siblings = siblings or []
+
+    @property
+    def cpuset(self):
+        return set(self.pinning.keys())
+
+    @property
+    def pinned_cpus(self):
+        return set(cpu_id for cpu_id, pinned in self.pinning.items() if pinned)
+
+    @property
+    def free_cpus(self):
+        return set(cpu_id for cpu_id, pinned in self.pinning.items()
+                   if not pinned)
+
+    @staticmethod
+    def _can_pack_instance(instance_pinning, threads_per_core, cores_list):
+        if threads_per_core * len(cores_list) < len(instance_pinning):
+            return False
+        if instance_pinning.siblings:
+            return instance_pinning.topology.threads <= threads_per_core
+        else:
+            return len(instance_pinning) % threads_per_core == 0
+
+    @staticmethod
+    def _pack_instance_onto_cores(available_siblings, instance_pinning):
+        """Pack an instance onto a set of siblings
+
+        :param available_siblings: list of sets of CPU id's - available
+                                   siblings per core
+        :param instance_pinning: An instance of VirtInstanceCPUPinning
+                                 describing the pinning requirements of the
+                                 instance
+
+        :returns: An instance of VirtInstanceCPUPinning containing the pinning
+                  information, and potentially a new topology to be exposed to
+                  the instance. None if there is no valid way to satisfy the
+                  sibling requirements for the instance.
+
+        This method will calculate the pinning for the given instance and it's
+        topology, making sure that hyperthreads of the instance match up with
+        those of the host when the pinning takes effect.
+        """
+
+        # We build up a data structure 'can_pack' that answers the question:
+        # 'Given the number of threads I want to pack, give me a list of all
+        # the available sibling sets that can accomodate it'
+        can_pack = collections.defaultdict(list)
+        for sib in available_siblings:
+            for threads_no in range(1, len(sib) + 1):
+                can_pack[threads_no].append(sib)
+
+        # We iterate over the can_pack dict in descending order of cores that
+        # can be packed - an attempt to get even distribution over time
+        for cores_per_sib, sib_list in sorted(
+                (t for t in can_pack.items()), reverse=True):
+            if VirtHostCPUPinning._can_pack_instance(
+                    instance_pinning, cores_per_sib, sib_list):
+                sliced_sibs = map(lambda s: list(s)[:cores_per_sib], sib_list)
+                if instance_pinning.siblings:
+                    pinning = dict(
+                            zip(itertools.chain(*instance_pinning.siblings),
+                                itertools.chain(*sliced_sibs)))
+                else:
+                    pinning = dict(zip(sorted(instance_pinning.cpuset),
+                                       itertools.chain(*sliced_sibs)))
+
+                topology = (instance_pinning.topology or
+                    VirtCPUTopology(sockets=1,
+                                    cores=len(sliced_sibs),
+                                    threads=cores_per_sib))
+                return VirtInstanceCPUPinning(
+                    instance_pinning.cpuset, pinning=pinning,
+                    topology=topology)
+
+    @classmethod
+    def get_pinning_for_instance(cls, host_pinning, instance_pinning):
+        """Figure out if instance can be pinned to the host and return details
+
+        :param host_pinning: VirtHostCPUPinning instance - the host info that
+                             the isntance should be pinned to
+        :param instance_pinning: VirtInstanceCPUPinning instance - instance
+                                 info, without any pinning information
+
+        :returns: VirtInstanceCPUPinning instance with pinning information, or
+                  None if instance cannot be pinned to the given host
+        """
+        # If we do not have enough CPUs available - bail early
+        if len(host_pinning.free_cpus) < len(instance_pinning):
+            return
+
+        # There is hyperthreading enabled on the host so we want to make sure
+        # we expose that to the guest
+        if host_pinning.siblings:
+            available_siblings = [sibling_set & host_pinning.free_cpus
+                                  for sibling_set in host_pinning.siblings]
+            # Instance requires hyperthreading in it's topology - so we need to
+            # pack it
+            if instance_pinning.topology and instance_pinning.siblings:
+                return VirtHostCPUPinning._pack_instance_onto_cores(
+                        available_siblings, instance_pinning)
+            # If it does not and the host has hyperthreading - we have to
+            # expose it
+            else:
+                largest_free_sibling_set = sorted(
+                        available_siblings, key=len)[-1]
+                # We can pack the instance onto a single core
+                if (len(instance_pinning.cpuset) <=
+                        len(largest_free_sibling_set)):
+                    topology = instance_pinning.topology or VirtCPUTopology(
+                            sockets=1, cores=1, threads=len(instance_pinning))
+                    return VirtInstanceCPUPinning(
+                        instance_pinning.cpuset.copy(),
+                        pinning=dict(
+                            zip(sorted(instance_pinning.cpuset),
+                                largest_free_sibling_set)),
+                        topology=topology)
+                # We can't so we need to pack it anyway and update the topology
+                else:
+                    return VirtHostCPUPinning._pack_instance_onto_cores(
+                            available_siblings, instance_pinning)
+        else:
+            # Straightforward to pin to available cpus when there is no
+            # hyperthreading on the host
+            to_pin = sorted(host_pinning.free_cpus)[:len(instance_pinning)]
+            return VirtInstanceCPUPinning(
+                        instance_pinning.cpuset,
+                        pinning=dict(
+                            zip(sorted(instance_pinning.cpuset), to_pin)),
+                        topology=instance_pinning.topology)
+
+    @classmethod
+    def usage_from_instance(cls, host, instance, free=False):
+        """Get the pinning info of 'host' after pinning 'instance' to
+        it's pCPUs.
+
+        :param host: VirtHostCPUPinning instance - host pinning info prior to
+                     attemtping to pin instance vCPUs to it's pCPUs
+        :param instance: VirtInstanceCPUPinning instance with pinning info,
+                         most likely generated by get_pinning_for_instance
+
+        :returns: A new instance of VirtHostCPUPinning with pinning info
+                  updated with pinning from the instance or
+        :raises: CPUPinningInvalidInstanceUsage if the instance cannot be
+                 pinned to the host due to lack of free CPUs or topology
+                 mismatch
+        """
+        host_pinning = host.pinning.copy()
+        marker = not free
+        for _cpu, pin in instance.pinning.items():
+            if host_pinning[pin] == marker:
+                raise exception.CPUPinningInvalidInstanceUsage()
+            host_pinning[pin] = marker
+        return cls(host.cpuset,
+                   pinning=set(cpu for cpu, pinned in host_pinning.items()
+                               if pinned),
+                   siblings=host.siblings)
 
 
 # TODO(ndipanov): Remove when all code paths are using objects
