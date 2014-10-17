@@ -1772,3 +1772,8 @@ class CPUPinningIllegalTopology(Invalid):
 
 class CPUPinningInvalidInstanceUsage(Invalid):
     msg_fmt = _("Instance cpu pinning data is invalid for the host.")
+
+
+class ImageCPUPinningForbidden(Invalid):
+    msg_fmt = _("Image property 'hw_cpu_policy' is not permitted to override "
+                "CPU pinning policy set against the flavor")

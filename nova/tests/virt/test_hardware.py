@@ -1852,3 +1852,60 @@ class CPUPinningTestCase(test.NoDBTestCase, _CPUPinningTestCaseBase):
         claim = hw.VirtHostCPUPinning.claim_test(
                 host_pin, [inst_pin_1, inst_pin_2])
         self.assertIsInstance(claim, six.text_type)
+
+    def test_get_constraint(self):
+        flavor = FakeFlavorObject(4, 2048, {})
+        constraint = hw.VirtInstanceCPUPinning.get_constraints(flavor, {})
+        self.assertIsNone(constraint)
+
+        flavor = FakeFlavorObject(4, 2048, {"hw:cpu_policy": "dedicated"})
+        constraint = hw.VirtInstanceCPUPinning.get_constraints(flavor, {})
+        self.assertEqual(1, len(constraint))
+        self.assertEqual(set([0, 1, 2, 3]), constraint.cells[0].cpuset)
+        self.assertIsNone(constraint.cells[0].topology)
+
+        flavor = FakeFlavorObject(4, 2048, {})
+        image_meta = {"hw_cpu_policy": "dedicated"}
+        constraint = hw.VirtInstanceCPUPinning.get_constraints(
+                flavor, image_meta)
+        self.assertEqual(1, len(constraint))
+        self.assertEqual(set([0, 1, 2, 3]), constraint.cells[0].cpuset)
+        self.assertIsNone(constraint.cells[0].topology)
+
+        flavor = FakeFlavorObject(4, 2048, {"hw:cpu_policy": "dedicated",
+                                            "hw:cpu_threads": 2})
+        constraint = hw.VirtInstanceCPUPinning.get_constraints(
+                flavor, {})
+        self.assertEqual(1, len(constraint))
+        self.assertEqual(set([0, 1, 2, 3]), constraint.cells[0].cpuset)
+        self.assertEqual([set([0, 1]), set([2, 3])],
+                         constraint.cells[0].siblings)
+        self.assertEqualTopology(hw.VirtCPUTopology(2, 1, 2),
+                                 constraint.cells[1].topology)
+
+    def test_get_constraint_raises(self):
+        flavor = FakeFlavor(4, 2048, {"hw:cpu_policy": "shared"})
+        image_meta = {"hw_cpu_policy": "dedicated"}
+        self.assertRaises(exception.ImageCPUPinningForbidden,
+                          hw.VirtInstanceCPUPinning.get_constraints,
+                          flavor, image_meta)
+
+    def test_get_constraint_w_numa(self):
+        instance_numa = hw.VirtNUMAInstanceTopology([
+            hw.VirtNUMATopologyCell(0, set([0, 1, 2, 3]), 2048),
+            hw.VirtNUMATopologyCell(1, set([4, 5, 6, 7]), 2048)])
+        flavor = FakeFlavorObject(4, 2048, {"hw:cpu_policy": "dedicated",
+                                            "hw:cpu_threads": 2})
+        constraint = hw.VirtInstanceCPUPinning.get_constraints(
+                flavor, {}, numa_topology=instance_numa)
+        self.assertEqual(2, len(constraint))
+        self.assertEqual(0, constraint.cells[0].id)
+        self.assertEqual(set([0, 1, 2, 3]), constraint.cells[0].cpuset)
+        self.assertEqual([set([0, 1]), set([2, 3])],
+                         constraint.cells[0].siblings)
+        self.assertEqual(1, constraint.cells[1].id)
+        self.assertEqual(set([4, 5, 6, 7]), constraint.cells[1].cpuset)
+        self.assertEqual([set([4, 5]), set([6, 7])],
+                         constraint.cells[1].siblings)
+        self.assertEqualTopology(hw.VirtCPUTopology(2, 1, 2),
+                                 constraint.cells[1].topology)

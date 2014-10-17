@@ -238,6 +238,19 @@ class VirtCPUTopology(object):
         return score
 
     @staticmethod
+    def is_topology_requested(flavor, image_meta):
+        keys = ("cpu_sockets", "cpu_cores", "cpu_threads", "cpu_maxsockets"
+                "cpu_maxcores", "cpu_maxthreads")
+        if any(flavor.extra_specs.get("hw:%s" % key) for key in keys):
+            return True
+
+        if any(image_meta.get("properties", {}).get("hw_%s" % key)
+               for key in keys):
+            return True
+
+        return False
+
+    @staticmethod
     def get_topology_constraints(flavor, image_meta):
         """Get the topology constraints declared in flavor or image
 
@@ -1000,6 +1013,38 @@ class VirtInstanceCPUPinningCell(object):
 class VirtInstanceCPUPinning(VirtNUMATopology):
 
     cell_class = VirtInstanceCPUPinningCell
+
+    @classmethod
+    def get_constraints(cls, flavor, image_meta, numa_topology=None):
+        flavor_pinning = flavor.get('extra_specs', {}).get("hw:cpu_policy")
+        image_pinning = image_meta.get("hw_cpu_policy")
+        if flavor_pinning == "dedicated":
+            requested = True
+        elif flavor_pinning == "shared":
+            if image_pinning == "dedicated":
+                raise exception.ImageCPUPinningForbidden()
+            requested = False
+        else:
+            requested = image_pinning == "dedicated"
+
+        if not requested:
+            return None
+
+        cpu_topology = None
+        if VirtCPUTopology.is_topology_requested(flavor, image_meta):
+            cpu_topology = VirtCPUTopology.get_best_config(flavor, image_meta)
+
+        if numa_topology:
+            pinning_cells = []
+            for cell in numa_topology.cells:
+                pinning_cell = cls.cell_class(
+                        cell.cpuset, id=cell.id, topology=cpu_topology)
+                pinning_cells.append(pinning_cell)
+            return cls(cells=pinning_cells)
+        else:
+            single_cell = cls.cell_class(
+                    set(range(flavor['vcpus'])), topology=cpu_topology)
+            return cls(cells=[single_cell])
 
 
 class VirtHostCPUPinningCell(object):
