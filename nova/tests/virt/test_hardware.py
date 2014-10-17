@@ -1385,24 +1385,32 @@ class HelperMethodsTestCase(test.NoDBTestCase):
         self._check_usage(res)
 
 
-class CPUPinningTestCase(test.NoDBTestCase):
-    def assertInstancePinned(self, instance_pinning):
-        for cpu, pin_cpu in instance_pinning.pinning.items():
+class _CPUPinningTestCaseBase(object):
+    def assertInstanceCellPinned(self, instance_cell, cell_ids=None):
+        default_cell_id = 0
+
+        for cpu, pin_cpu in instance_cell.pinning.items():
             self.assertIsNotNone(pin_cpu)
+        if cell_ids is None:
+            self.assertEqual(default_cell_id, instance_cell.id)
+        else:
+            self.assertIn(instance_cell.id, cell_ids)
 
     def assertEqualTopology(self, expected, got):
         for attr in ('sockets', 'cores', 'threads'):
             self.assertEqual(getattr(expected, attr), getattr(got, attr),
                              "Mismatch on %s" % attr)
 
+
+class CPUPinningCellTestCase(test.NoDBTestCase, _CPUPinningTestCaseBase):
     def test_instance_cpupinning_init(self):
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2]))
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2]))
         self.assertIsNone(inst_pin.topology)
         self.assertEqual([], inst_pin.siblings)
         self.assertEqual({0: None, 1: None, 2: None}, inst_pin.pinning)
         self.assertEqual(set([0, 1, 2]), inst_pin.cpuset)
 
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2]),
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2]),
                                              pinning={1: 14, 10: 12})
         self.assertIsNone(inst_pin.topology)
         self.assertEqual([], inst_pin.siblings)
@@ -1411,38 +1419,41 @@ class CPUPinningTestCase(test.NoDBTestCase):
 
     def test_instance_cpupinning_init_topology(self):
         topo = hw.VirtCPUTopology(sockets=1, cores=3, threads=0)
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2]), topology=topo)
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2]), topology=topo)
         self.assertEqual([], inst_pin.siblings)
 
         # One thread actually means no threads
         topo = hw.VirtCPUTopology(sockets=1, cores=3, threads=1)
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2]), topology=topo)
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2]), topology=topo)
         self.assertEqual([], inst_pin.siblings)
 
         topo = hw.VirtCPUTopology(sockets=1, cores=2, threads=2)
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3]), topology=topo)
+        inst_pin = hw.VirtInstanceCPUPinningCell(
+                set([0, 1, 2, 3]), topology=topo)
         self.assertEqual([set([0, 1]), set([2, 3])], inst_pin.siblings)
 
         topo = hw.VirtCPUTopology(sockets=1, cores=1, threads=4)
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3]), topology=topo)
+        inst_pin = hw.VirtInstanceCPUPinningCell(
+                set([0, 1, 2, 3]), topology=topo)
         self.assertEqual([set([0, 1, 2, 3])], inst_pin.siblings)
 
         topo = hw.VirtCPUTopology(sockets=1, cores=2, threads=3)
         self.assertRaises(exception.CPUPinningIllegalTopology,
-                          hw.VirtInstanceCPUPinning, set([0, 1, 2, 3]),
+                          hw.VirtInstanceCPUPinningCell, set([0, 1, 2, 3]),
                           topology=topo)
 
     def test_host_cpu_pinning_init(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2]))
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2]))
         self.assertEqual([], host_pin.siblings)
         self.assertEqual({0: False, 1: False, 2: False}, host_pin.pinning)
         self.assertEqual(set([0, 1, 2]), host_pin.cpuset)
         self.assertEqual(set([0, 1, 2]), host_pin.free_cpus)
         self.assertEqual(set(), host_pin.pinned_cpus)
 
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]),
-                                         pinning=set([1, 10]),
-                                         siblings=[set([0, 1]), set([2, 3])])
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                             pinning=set([1, 10]),
+                                             siblings=[set([0, 1]),
+                                                       set([2, 3])])
         self.assertEqual({0: False, 1: True, 2: False, 3: False},
                          host_pin.pinning)
         self.assertEqual(set([0, 1, 2, 3]), host_pin.cpuset)
@@ -1450,152 +1461,394 @@ class CPUPinningTestCase(test.NoDBTestCase):
         self.assertEqual(set([1]), host_pin.pinned_cpus)
 
     def test_get_pinning_inst_too_large(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2]))
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3]))
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2]))
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2, 3]))
 
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
         self.assertIsNone(inst_pin)
 
     def test_get_pinning_inst_not_avail(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]), pinning=set([0]))
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3]))
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                             pinning=set([0]))
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2, 3]))
 
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
         self.assertIsNone(inst_pin)
 
     def test_get_pinning_no_sibling_fits_empty(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2]))
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2]))
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2]))
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2]))
 
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
-        self.assertInstancePinned(inst_pin)
+        self.assertInstanceCellPinned(inst_pin)
 
     def test_get_pinning_no_sibling_fits_w_usage(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]), pinning=set([1]))
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2]))
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                             pinning=set([1]))
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2]))
 
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
-        self.assertInstancePinned(inst_pin)
+        self.assertInstanceCellPinned(inst_pin)
 
     def test_get_pinning_instance_siblings_fits(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]))
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]))
         topo = hw.VirtCPUTopology(sockets=1, cores=2, threads=2)
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3]), topology=topo)
+        inst_pin = hw.VirtInstanceCPUPinningCell(
+                set([0, 1, 2, 3]), topology=topo)
 
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
-        self.assertInstancePinned(inst_pin)
+        self.assertInstanceCellPinned(inst_pin)
         self.assertEqualTopology(topo, inst_pin.topology)
 
     def test_get_pinning_instance_siblings_host_siblings_fits_empty(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]),
-                                         siblings=[set([0, 1]), set([2, 3])])
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                             siblings=[set([0, 1]),
+                                                       set([2, 3])])
         topo = hw.VirtCPUTopology(sockets=1, cores=2, threads=2)
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3]), topology=topo)
+        inst_pin = hw.VirtInstanceCPUPinningCell(
+                set([0, 1, 2, 3]), topology=topo)
 
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
-        self.assertInstancePinned(inst_pin)
+        self.assertInstanceCellPinned(inst_pin)
         self.assertEqualTopology(topo, inst_pin.topology)
 
     def test_get_pinning_instance_siblings_host_siblings_fits_w_usage(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3, 4, 5, 6, 7]),
-                                         pinning=set([1, 2, 5, 6]),
-                                         siblings=[set([0, 1, 2, 3]),
-                                                   set([4, 5, 6, 7])])
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3, 4, 5, 6, 7]),
+                                             pinning=set([1, 2, 5, 6]),
+                                             siblings=[set([0, 1, 2, 3]),
+                                                       set([4, 5, 6, 7])])
         topo = hw.VirtCPUTopology(sockets=1, cores=2, threads=2)
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3]), topology=topo)
+        inst_pin = hw.VirtInstanceCPUPinningCell(
+                set([0, 1, 2, 3]), topology=topo)
 
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
-        self.assertInstancePinned(inst_pin)
+        self.assertInstanceCellPinned(inst_pin)
         self.assertEqualTopology(topo, inst_pin.topology)
 
     def test_get_pinning_instance_siblings_host_siblings_fails(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3, 4, 5, 6, 7]),
-                                         siblings=[set([0, 1]), set([2, 3]),
-                                                   set([4, 5]), set([6, 7])])
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3, 4, 5, 6, 7]),
+                                             siblings=[set([0, 1]),
+                                                       set([2, 3]),
+                                                       set([4, 5]),
+                                                       set([6, 7])])
         topo = hw.VirtCPUTopology(sockets=1, cores=2, threads=4)
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3, 4, 5, 6, 7]),
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2, 3, 4, 5, 6, 7]),
                                              topology=topo)
 
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
         self.assertIsNone(inst_pin)
 
     def test_get_pinning_host_siblings_fit_single_core(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3, 4, 5, 6, 7]),
-                                         siblings=[set([0, 1, 2, 3]),
-                                                   set([4, 5, 6, 7])])
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3]))
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3, 4, 5, 6, 7]),
+                                             siblings=[set([0, 1, 2, 3]),
+                                                       set([4, 5, 6, 7])])
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2, 3]))
 
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
-        self.assertInstancePinned(inst_pin)
+        self.assertInstanceCellPinned(inst_pin)
         got_topo = hw.VirtCPUTopology(sockets=1, cores=1, threads=4)
         self.assertEqualTopology(got_topo, inst_pin.topology)
 
     def test_get_pinning_host_siblings_fit(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]),
-                                         siblings=[set([0, 1]), set([2, 3])])
-        inst_pin = hw.VirtInstanceCPUPinning(set([0, 1, 2, 3]))
-        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                             siblings=[set([0, 1]),
+                                                       set([2, 3])])
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0, 1, 2, 3]))
+        inst_pin = hw.VirtHostCPUPinningCell.get_pinning_for_cell(
                 host_pin, inst_pin)
-        self.assertInstancePinned(inst_pin)
+        self.assertInstanceCellPinned(inst_pin)
         got_topo = hw.VirtCPUTopology(sockets=1, cores=2, threads=2)
         self.assertEqualTopology(got_topo, inst_pin.topology)
 
     def test_usage_from_instance(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]))
-        inst_pin_1 = hw.VirtInstanceCPUPinning(
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]))
+        inst_pin_1 = hw.VirtInstanceCPUPinningCell(
                 set([0, 1]), pinning={0: 0, 1: 3})
 
-        host_pin = hw.VirtHostCPUPinning.usage_from_instance(host_pin,
+        host_pin = hw.VirtHostCPUPinningCell.usage_from_instance_cell(host_pin,
                 inst_pin_1)
         self.assertEqual({0: True, 1: False, 2: False, 3: True},
                          host_pin.pinning)
 
-        inst_pin_2 = hw.VirtInstanceCPUPinning(
+        inst_pin_2 = hw.VirtInstanceCPUPinningCell(
                 set([0, 1]), pinning={0: 1, 1: 2})
-        host_pin = hw.VirtHostCPUPinning.usage_from_instance(host_pin,
+        host_pin = hw.VirtHostCPUPinningCell.usage_from_instance_cell(host_pin,
                 inst_pin_2)
         self.assertEqual({0: True, 1: True, 2: True, 3: True},
                          host_pin.pinning)
 
     def test_usage_from_instance_free(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]), pinning=set([1]))
-        inst_pin_1 = hw.VirtInstanceCPUPinning(set([0]), pinning={0: 1})
-        inst_pin_2 = hw.VirtInstanceCPUPinning(
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                             pinning=set([1]))
+        inst_pin_1 = hw.VirtInstanceCPUPinningCell(set([0]), pinning={0: 1})
+        inst_pin_2 = hw.VirtInstanceCPUPinningCell(
                 set([0, 1]), pinning={0: 0, 1: 3})
-        host_pin = hw.VirtHostCPUPinning.usage_from_instance(host_pin,
+        host_pin = hw.VirtHostCPUPinningCell.usage_from_instance_cell(host_pin,
                 inst_pin_2)
         self.assertEqual({0: True, 1: True, 2: False, 3: True},
                          host_pin.pinning)
 
-        host_pin = hw.VirtHostCPUPinning.usage_from_instance(host_pin,
+        host_pin = hw.VirtHostCPUPinningCell.usage_from_instance_cell(host_pin,
                 inst_pin_1, free=True)
         self.assertEqual({0: True, 1: False, 2: False, 3: True},
                          host_pin.pinning)
 
-        host_pin = hw.VirtHostCPUPinning.usage_from_instance(host_pin,
+        host_pin = hw.VirtHostCPUPinningCell.usage_from_instance_cell(host_pin,
                 inst_pin_2, free=True)
         self.assertEqual({0: False, 1: False, 2: False, 3: False},
                          host_pin.pinning)
 
     def test_usage_from_instance_fails(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]), pinning=set([1]))
-        inst_pin = hw.VirtInstanceCPUPinning(set([0]), pinning={0: 1})
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                             pinning=set([1]))
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0]), pinning={0: 1})
         self.assertRaises(exception.CPUPinningInvalidInstanceUsage,
-                          hw.VirtHostCPUPinning.usage_from_instance,
+                          hw.VirtHostCPUPinningCell.usage_from_instance_cell,
                           host_pin, inst_pin)
 
     def test_usage_from_instance_fails_free(self):
-        host_pin = hw.VirtHostCPUPinning(set([0, 1, 2, 3]))
-        inst_pin = hw.VirtInstanceCPUPinning(set([0]), pinning={0: 1})
+        host_pin = hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]))
+        inst_pin = hw.VirtInstanceCPUPinningCell(set([0]), pinning={0: 1})
         self.assertRaises(exception.CPUPinningInvalidInstanceUsage,
-                          hw.VirtHostCPUPinning.usage_from_instance,
+                          hw.VirtHostCPUPinningCell.usage_from_instance_cell,
                           host_pin, inst_pin, free=True)
+
+
+class CPUPinningTestCase(test.NoDBTestCase, _CPUPinningTestCaseBase):
+    def assertEqualVirtInstanceCPUPinningCell(self, expected, got):
+        self.assertEqual(expected.id, got.id)
+        self.assertThat(expected.pinning, matchers.DictMatches(got.pinning))
+        if expected.topology is None:
+            self.assertIsNone(got.topology)
+        else:
+            for attr in ('sockets', 'cores', 'threads'):
+                self.assertEqual(getattr(expected.topology, attr),
+                                 getattr(got.topology, attr))
+
+    def assertEqualVirtHostCPUPinningCell(self, expected, got):
+        self.assertEqual(expected.id, got.id)
+        self.assertThat(expected.pinning, matchers.DictMatches(got.pinning))
+        if expected.siblings is None:
+            self.assertIsNone(got.siblings)
+        else:
+            self.assertEqual(set(map(tuple, got.siblings)),
+                             set(map(tuple, got.siblings)))
+
+    def _test_to_dict(self, cell_or_topo, expected):
+        got = cell_or_topo._to_dict()
+        self.assertThat(expected, matchers.DictMatches(got))
+
+    def _test_from_dict(self, data_dict, expected_topo):
+        topo_cls = expected_topo.__class__
+        got_topo = topo_cls._from_dict(data_dict)
+        for got_cell, expected_cell in zip(
+                got_topo.cells, expected_topo.cells):
+            getattr(self, 'assertEqual%s' % topo_cls.cell_class.__name__)(
+                    expected_cell, got_cell)
+
+    def test_instance_pinning_dict(self):
+        inst_pin = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(
+                            set([0, 1]), id=0, pinning={0: 0, 1: 3},
+                            topology=hw.VirtCPUTopology(1, 2, 1)),
+                       hw.VirtInstanceCPUPinningCell(
+                            set([2, 3]), id=1, pinning={2: 1, 3: 2},
+                            topology=hw.VirtCPUTopology(1, 2, 1))])
+        inst_pin_dict = {'cells': [
+            {'id': 0, 'pin': {0: 0, 1: 3},
+            'topo': {'sock': 1, 'core': 2, 'th': 1}},
+            {'id': 1, 'pin': {2: 1, 3: 2},
+            'topo': {'sock': 1, 'core': 2, 'th': 1}}]}
+        self._test_to_dict(inst_pin, inst_pin_dict)
+        self._test_from_dict(inst_pin_dict, inst_pin)
+
+    def test_host_pinning_dict(self):
+        host_pin = hw.VirtHostCPUPinning(
+            cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                             siblings=[set([0, 1]),
+                                                       set([2, 3])],
+                                             pinning=set([0, 2])),
+                    hw.VirtHostCPUPinningCell(1, set([4, 5, 6, 7]),
+                                             siblings=[set([4, 5]),
+                                                       set([6, 7])],
+                                             pinning=set([4]))])
+        host_pin_dict = {'cells': [
+            {'cpuset': '0,1,2,3', 'sib': ['0,1', '2,3'],
+             'pin': '0,2', 'id': 0},
+            {'cpuset': '4,5,6,7', 'sib': ['4,5', '6,7'],
+             'pin': '4', 'id': 1}]}
+        self._test_to_dict(host_pin, host_pin_dict)
+        self._test_from_dict(host_pin_dict, host_pin)
+
+    def test_host_get_pinning_for_instance_single_cell(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1])),
+                       hw.VirtHostCPUPinningCell(1, set([2, 3]))])
+        inst_pin = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(set([0, 1]))])
+
+        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+                host_pin, inst_pin)
+
+        for cell in inst_pin.cells:
+            self.assertInstanceCellPinned(cell, cell_ids=(0, 1))
+
+    def test_host_get_pinning_for_instance_single_cell_w_usage(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1]),
+                                                 pinning=set([0])),
+                       hw.VirtHostCPUPinningCell(1, set([2, 3]))])
+        inst_pin = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(set([0, 1]))])
+
+        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+                host_pin, inst_pin)
+
+        for cell in inst_pin.cells:
+            self.assertInstanceCellPinned(cell, cell_ids=(1,))
+
+    def test_host_get_pinning_for_instance_single_cell_fail(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1]),
+                                                 pinning=set([0])),
+                       hw.VirtHostCPUPinningCell(1, set([2, 3]),
+                                                 pinning=set([2]))])
+        inst_pin = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(set([0, 1]))])
+
+        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+                host_pin, inst_pin)
+        self.assertIsNone(inst_pin)
+
+    def test_host_get_pinning_for_instance_fit(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3])),
+                       hw.VirtHostCPUPinningCell(1, set([4, 5, 6, 7]))])
+        inst_pin = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(set([0, 1])),
+                       hw.VirtInstanceCPUPinningCell(set([2, 3]))])
+        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+                host_pin, inst_pin)
+
+        for cell in inst_pin.cells:
+            self.assertInstanceCellPinned(cell, cell_ids=(0, 1))
+
+    def test_host_get_pinning_for_instance_barely_fit(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                                 pinning=set([0])),
+                       hw.VirtHostCPUPinningCell(1, set([4, 5, 6, 7]),
+                                                 pinning=set([4, 5, 6])),
+                       hw.VirtHostCPUPinningCell(2, set([8, 9, 10, 11]),
+                                                 pinning=set([10, 11]))])
+        inst_pin = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(set([0, 1])),
+                       hw.VirtInstanceCPUPinningCell(set([2, 3]))])
+        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+                host_pin, inst_pin)
+
+        for cell in inst_pin.cells:
+            self.assertInstanceCellPinned(cell, cell_ids=(0, 2))
+
+    def test_host_get_pinning_for_instance_fail_capacity(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                                 pinning=set([0])),
+                       hw.VirtHostCPUPinningCell(1, set([4, 5, 6, 7]),
+                                                 pinning=set([4, 5, 6]))])
+        inst_pin = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(set([0, 1])),
+                       hw.VirtInstanceCPUPinningCell(set([2, 3]))])
+        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+                host_pin, inst_pin)
+        self.assertIsNone(inst_pin)
+
+    def test_host_get_pinning_for_instance_fail_topology(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3])),
+                       hw.VirtHostCPUPinningCell(1, set([4, 5, 6, 7]))])
+        inst_pin = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(set([0, 1])),
+                       hw.VirtInstanceCPUPinningCell(set([2, 3])),
+                       hw.VirtInstanceCPUPinningCell(set([4, 5]))])
+        inst_pin = hw.VirtHostCPUPinning.get_pinning_for_instance(
+                host_pin, inst_pin)
+        self.assertIsNone(inst_pin)
+
+    def test_host_usage_from_instances(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]))])
+        inst_pin_1 = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(
+                    set([0, 1]), id=0, pinning={0: 0, 1: 3})])
+        inst_pin_2 = hw.VirtInstanceCPUPinning(
+                cells = [hw.VirtInstanceCPUPinningCell(
+                    set([0, 1]), id=0, pinning={0: 1, 1: 2})])
+
+        host_pin = hw.VirtHostCPUPinning.usage_from_instances(
+                host_pin, [inst_pin_1, inst_pin_2])
+        self.assertEqual({0: True, 1: True, 2: True, 3: True},
+                         host_pin.cells[0].pinning)
+
+    def test_host_usage_from_instances_free(self):
+        host_pin = hw.VirtHostCPUPinning(
+            cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]),
+                                             pinning=set([0, 1, 3]))])
+        inst_pin_1 = hw.VirtInstanceCPUPinning(
+            cells=[hw.VirtInstanceCPUPinningCell(
+                    set([0]), pinning={0: 1}, id=0)])
+        inst_pin_2 = hw.VirtInstanceCPUPinning(
+            cells=[hw.VirtInstanceCPUPinningCell(
+                    set([0, 1]), id=0, pinning={0: 0, 1: 3})])
+        host_pin = hw.VirtHostCPUPinning.usage_from_instances(
+                host_pin, [inst_pin_1, inst_pin_2], free=True)
+        self.assertEqual({0: False, 1: False, 2: False, 3: False},
+                         host_pin.cells[0].pinning)
+
+    def test_host_usage_from_instances_fail(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]))])
+        inst_pin_1 = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(
+                    set([0, 1]), id=0, pinning={0: 0, 1: 3})])
+        inst_pin_2 = hw.VirtInstanceCPUPinning(
+                cells = [hw.VirtInstanceCPUPinningCell(
+                    set([0, 1]), id=0, pinning={0: 0, 1: 2})])
+
+        self.assertRaises(
+                exception.CPUPinningInvalidInstanceUsage,
+                hw.VirtHostCPUPinning.usage_from_instances,
+                host_pin, [inst_pin_1, inst_pin_2])
+
+    def test_claim_succeed(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]))])
+        inst_pin_1 = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(set([0, 1]))])
+        inst_pin_2 = hw.VirtInstanceCPUPinning(
+                cells = [hw.VirtInstanceCPUPinningCell(set([0, 1]))])
+
+        claim = hw.VirtHostCPUPinning.claim_test(
+                host_pin, [inst_pin_1, inst_pin_2])
+        self.assertIsNone(claim)
+
+    def test_claim_fail(self):
+        host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1, 2, 3]))])
+        inst_pin_1 = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(set([0, 1]))])
+        inst_pin_2 = hw.VirtInstanceCPUPinning(
+                cells = [hw.VirtInstanceCPUPinningCell(set([0, 1, 2]))])
+
+        claim = hw.VirtHostCPUPinning.claim_test(
+                host_pin, [inst_pin_1, inst_pin_2])
+        self.assertIsInstance(claim, six.text_type)

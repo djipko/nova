@@ -13,6 +13,7 @@
 # under the License.
 
 import collections
+import copy
 import itertools
 
 from oslo.config import cfg
@@ -929,17 +930,20 @@ class VirtNUMAHostTopology(VirtNUMATopology):
                           "the given host NUMA topology limits."))
 
 
-class VirtInstanceCPUPinning(object):
-    def __init__(self, cpuset, pinning=None, topology=None):
-        """Create an object containing instance CPU pinning data
+class VirtInstanceCPUPinningCell(object):
+    def __init__(self, cpuset, id=None, pinning=None, topology=None):
+        """Create an object containing instance NUMA cell CPU pinning data
 
         :param cpuset: A set of vCPU ids of the instance
+        :param id: Cell id when pinned to a host, or None if instance has
+                   not yet been pinned
         :param pinning: A dictionary mapping instance vCPU id to the host pCPU
                         it is pinned to
         :param topology: A VirtCPUTopology instance
 
         We will use topology to figure out siblings
         """
+        self.id = id
         pinning = pinning or {}
         self.topology = topology or None
 
@@ -956,6 +960,25 @@ class VirtInstanceCPUPinning(object):
 
     def __len__(self):
         return len(self.pinning)
+
+    def _to_dict(self):
+        topo = None
+        if self.topology:
+            topo = {'sock': self.topology.sockets,
+                    'core': self.topology.cores,
+                    'th': self.topology.threads}
+        return {'id': self.id, 'pin': self.pinning, 'topo': topo}
+
+    @classmethod
+    def _from_dict(cls, data):
+        topology = data.get('topo') or None
+        pinning = data.get('pin') or {}
+        if topology:
+            topology = VirtCPUTopology(sockets=topology['sock'],
+                                       cores=topology['core'],
+                                       threads=topology['th'])
+        return cls(set(pinning.keys()), id=data.get('id'),
+                   pinning=pinning, topology=topology)
 
     @property
     def cpuset(self):
@@ -974,23 +997,46 @@ class VirtInstanceCPUPinning(object):
         return map(set, zip(*[iter(cpu_list)] * threads))
 
 
-class VirtHostCPUPinning(object):
-    def __init__(self, cpuset, pinning=None, siblings=None):
-        """Create an object containing host CPU pinning data
+class VirtInstanceCPUPinning(VirtNUMATopology):
 
+    cell_class = VirtInstanceCPUPinningCell
+
+
+class VirtHostCPUPinningCell(object):
+    def __init__(self, id, cpuset, pinning=None, siblings=None):
+        """Create an object containing host NUMA cell CPU pinning data
+
+        :param id: NUMA cell id
         :param cpuset: A set of pCPU ids of the host
         :param pinning: A set of "taken" pCPU ids that have instance
                         vCPUs pinned to them
         :param siblings: A list of sets of pCPU ids each representing a set
                          of sibling cores
         """
-
+        self.id = id
         pinning = pinning or set()
 
         self.pinning = dict(zip(cpuset, itertools.repeat(False)))
         self.pinning.update(dict((cpu, True) for cpu in pinning
                             if cpu in cpuset))
         self.siblings = siblings or []
+
+    def _to_dict(self):
+        return {'id': self.id,
+                'cpuset': format_cpu_spec(self.cpuset, allow_ranges=False),
+                'sib': [format_cpu_spec(sib, allow_ranges=False)
+                        for sib in self.siblings or []] or None,
+                'pin': format_cpu_spec(self.pinned_cpus, allow_ranges=False)}
+
+    @classmethod
+    def _from_dict(cls, data):
+        pinning = data.get('pin') or ''
+        siblings = data.get('sib') or None
+        if siblings:
+            siblings = [parse_cpu_spec(sib) for sib in siblings]
+        return cls(data['id'], parse_cpu_spec(data.get('cpuset', '')),
+                   pinning=parse_cpu_spec(pinning) or None,
+                   siblings=siblings)
 
     @property
     def cpuset(self):
@@ -1015,7 +1061,8 @@ class VirtHostCPUPinning(object):
             return len(instance_pinning) % threads_per_core == 0
 
     @staticmethod
-    def _pack_instance_onto_cores(available_siblings, instance_pinning):
+    def _pack_instance_onto_cores(available_siblings, instance_pinning,
+                                  cell_id):
         """Pack an instance onto a set of siblings
 
         :param available_siblings: list of sets of CPU id's - available
@@ -1046,7 +1093,7 @@ class VirtHostCPUPinning(object):
         # can be packed - an attempt to get even distribution over time
         for cores_per_sib, sib_list in sorted(
                 (t for t in can_pack.items()), reverse=True):
-            if VirtHostCPUPinning._can_pack_instance(
+            if VirtHostCPUPinningCell._can_pack_instance(
                     instance_pinning, cores_per_sib, sib_list):
                 sliced_sibs = map(lambda s: list(s)[:cores_per_sib], sib_list)
                 if instance_pinning.siblings:
@@ -1061,13 +1108,13 @@ class VirtHostCPUPinning(object):
                     VirtCPUTopology(sockets=1,
                                     cores=len(sliced_sibs),
                                     threads=cores_per_sib))
-                return VirtInstanceCPUPinning(
-                    instance_pinning.cpuset, pinning=pinning,
+                return VirtInstanceCPUPinningCell(
+                    instance_pinning.cpuset, id=cell_id, pinning=pinning,
                     topology=topology)
 
     @classmethod
-    def get_pinning_for_instance(cls, host_pinning, instance_pinning):
-        """Figure out if instance can be pinned to the host and return details
+    def get_pinning_for_cell(cls, host_pinning, instance_pinning):
+        """Figure out if cells can be pinned to a host cell and return details
 
         :param host_pinning: VirtHostCPUPinning instance - the host info that
                              the isntance should be pinned to
@@ -1089,8 +1136,8 @@ class VirtHostCPUPinning(object):
             # Instance requires hyperthreading in it's topology - so we need to
             # pack it
             if instance_pinning.topology and instance_pinning.siblings:
-                return VirtHostCPUPinning._pack_instance_onto_cores(
-                        available_siblings, instance_pinning)
+                return cls._pack_instance_onto_cores(
+                        available_siblings, instance_pinning, host_pinning.id)
             # If it does not and the host has hyperthreading - we have to
             # expose it
             else:
@@ -1101,29 +1148,32 @@ class VirtHostCPUPinning(object):
                         len(largest_free_sibling_set)):
                     topology = instance_pinning.topology or VirtCPUTopology(
                             sockets=1, cores=1, threads=len(instance_pinning))
-                    return VirtInstanceCPUPinning(
+                    return VirtInstanceCPUPinningCell(
                         instance_pinning.cpuset.copy(),
+                        id=host_pinning.id,
                         pinning=dict(
                             zip(sorted(instance_pinning.cpuset),
                                 largest_free_sibling_set)),
                         topology=topology)
                 # We can't so we need to pack it anyway and update the topology
                 else:
-                    return VirtHostCPUPinning._pack_instance_onto_cores(
-                            available_siblings, instance_pinning)
+                    return VirtHostCPUPinningCell._pack_instance_onto_cores(
+                            available_siblings, instance_pinning,
+                            host_pinning.id)
         else:
             # Straightforward to pin to available cpus when there is no
             # hyperthreading on the host
             to_pin = sorted(host_pinning.free_cpus)[:len(instance_pinning)]
-            return VirtInstanceCPUPinning(
+            return VirtInstanceCPUPinningCell(
                         instance_pinning.cpuset,
+                        id=host_pinning.id,
                         pinning=dict(
                             zip(sorted(instance_pinning.cpuset), to_pin)),
                         topology=instance_pinning.topology)
 
     @classmethod
-    def usage_from_instance(cls, host, instance, free=False):
-        """Get the pinning info of 'host' after pinning 'instance' to
+    def usage_from_instance_cell(cls, host_cell, instance_cell, free=False):
+        """Get the pinning info of 'host_cell' after pinning 'instance_cell' to
         it's pCPUs.
 
         :param host: VirtHostCPUPinning instance - host pinning info prior to
@@ -1137,16 +1187,72 @@ class VirtHostCPUPinning(object):
                  pinned to the host due to lack of free CPUs or topology
                  mismatch
         """
-        host_pinning = host.pinning.copy()
+        host_pinning = host_cell.pinning.copy()
         marker = not free
-        for _cpu, pin in instance.pinning.items():
+        for _cpu, pin in instance_cell.pinning.items():
             if host_pinning[pin] == marker:
                 raise exception.CPUPinningInvalidInstanceUsage()
             host_pinning[pin] = marker
-        return cls(host.cpuset,
+        return cls(host_cell.id, host_cell.cpuset,
                    pinning=set(cpu for cpu, pinned in host_pinning.items()
                                if pinned),
-                   siblings=host.siblings)
+                   siblings=host_cell.siblings)
+
+
+class VirtHostCPUPinning(VirtNUMATopology):
+
+    cell_class = VirtHostCPUPinningCell
+
+    @classmethod
+    def get_pinning_for_instance(cls, host, instance_pinning):
+        if (not (host and instance_pinning) or
+                len(host) < len(instance_pinning)):
+            return
+        else:
+            for host_cell_perm in itertools.permutations(
+                    host.cells, len(instance_pinning)):
+                cells = []
+                for host_cell, instance_cell in zip(
+                        host_cell_perm, instance_pinning.cells):
+                    got_pinning = cls.cell_class.get_pinning_for_cell(
+                                host_cell, instance_cell)
+                    if got_pinning is None:
+                        break
+                    cells.append(got_pinning)
+                if len(cells) == len(host_cell_perm):
+                    return VirtInstanceCPUPinning(cells=cells)
+
+    @classmethod
+    def usage_from_instances(cls, host, instances_pinning, free=False):
+        if not host:
+            return
+        instances_pinning = instances_pinning or []
+        cells = []
+        for host_cell in host.cells:
+            used_host_cell = copy.deepcopy(host_cell)
+            for instance_pinning in instances_pinning:
+                for instance_cell in instance_pinning.cells:
+                    if instance_cell.id == host_cell.id:
+                        got_cell = cls.cell_class.usage_from_instance_cell(
+                                used_host_cell, instance_cell, free=free)
+                        used_host_cell = got_cell
+            cells.append(used_host_cell)
+        return cls(cells=cells)
+
+    @classmethod
+    def claim_test(cls, host, instances_pinning, limits=None):
+        fail_msg = _("Instances cannot be pinned to this host.")
+        if not host:
+            return fail_msg
+        elif not instances_pinning:
+            return
+        else:
+            for instance_pinning in instances_pinning:
+                got_pinning = cls.get_pinning_for_instance(
+                        host, instance_pinning)
+                if got_pinning is None:
+                    return fail_msg
+                host = cls.usage_from_instances(host, [got_pinning])
 
 
 # TODO(ndipanov): Remove when all code paths are using objects
