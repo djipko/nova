@@ -903,6 +903,24 @@ class TestNovaMigrations(BaseWalkMigrationTestCase, CommonTestsMixIn):
         self.assertColumnNotExists(
                 engine, 'shadow_compute_nodes', 'cpu_pinning')
 
+    def _check_267(self, engine, data):
+        self.assertColumnExists(engine, 'instance_extra', 'cpu_pinning')
+        self.assertColumnExists(
+                engine, 'shadow_instance_extra', 'cpu_pinning')
+
+        instance_extra = oslodbutils.get_table(engine, 'instance_extra')
+        shadow_instance_extra = oslodbutils.get_table(
+                engine, 'shadow_instance_extra')
+        self.assertIsInstance(instance_extra.c.cpu_pinning.type,
+                              sqlalchemy.types.Text)
+        self.assertIsInstance(shadow_instance_extra.c.cpu_pinning.type,
+                              sqlalchemy.types.Text)
+
+    def _post_downgrade_267(self, engine):
+        self.assertColumnNotExists(engine, 'instance_extra', 'cpu_pinning')
+        self.assertColumnNotExists(
+                engine, 'shadow_instance_extra', 'cpu_pinning')
+
 
 class ProjectTestCase(test.NoDBTestCase):
 
