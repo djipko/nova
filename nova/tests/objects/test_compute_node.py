@@ -39,6 +39,12 @@ fake_supported_hv_specs = [fake_hv_spec]
 # for backward compatibility, each supported instance object
 # is stored as a list in the database
 fake_supported_hv_specs_db_format = jsonutils.dumps([fake_hv_spec.to_list()])
+fake_cpu_pinning = hardware.VirtHostCPUPinning(
+                cells=[hardware.VirtHostCPUPinningCell(
+                           0, set([0, 1, 2, 3]), pinning=set([0])),
+                       hardware.VirtHostCPUPinningCell(
+                           1, set([4, 5, 6, 7]), pinning=set([4, 5, 6]))])
+fake_cpu_pinning_db_format = fake_cpu_pinning.to_json()
 fake_compute_node = {
     'created_at': NOW,
     'updated_at': None,
@@ -66,6 +72,7 @@ fake_compute_node = {
     'host_ip': fake_host_ip,
     'numa_topology': fake_numa_topology_db_format,
     'supported_instances': fake_supported_hv_specs_db_format,
+    'cpu_pinning': fake_cpu_pinning_db_format,
     }
 
 
@@ -228,6 +235,11 @@ class _TestComputeNodeObject(object):
         compute.supported_hv_specs = fake_supported_hv_specs
         primitive = compute.obj_to_primitive(target_version='1.5')
         self.assertNotIn('supported_hv_specs', primitive)
+
+    def test_compat_cpu_pinning(self):
+        compute = compute_node.ComputeNode()
+        primitive = compute.obj_to_primitive(target_version='1.6')
+        self.assertNotIn('cpu_pinning', primitive)
 
 
 class TestComputeNodeObject(test_objects._LocalTest,

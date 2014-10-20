@@ -885,6 +885,24 @@ class TestNovaMigrations(BaseWalkMigrationTestCase, CommonTestsMixIn):
                                  if [c.name for c in i.columns][:1] ==
                                     ['host']]))
 
+    def _check_266(self, engine, data):
+        self.assertColumnExists(engine, 'compute_nodes', 'cpu_pinning')
+        self.assertColumnExists(
+                engine, 'shadow_compute_nodes', 'cpu_pinning')
+
+        compute_nodes = oslodbutils.get_table(engine, 'compute_nodes')
+        shadow_compute_nodes = oslodbutils.get_table(
+                engine, 'shadow_compute_nodes')
+        self.assertIsInstance(compute_nodes.c.cpu_pinning.type,
+                              sqlalchemy.types.Text)
+        self.assertIsInstance(shadow_compute_nodes.c.cpu_pinning.type,
+                              sqlalchemy.types.Text)
+
+    def _post_downgrade_266(self, engine):
+        self.assertColumnNotExists(engine, 'compute_nodes', 'cpu_pinning')
+        self.assertColumnNotExists(
+                engine, 'shadow_compute_nodes', 'cpu_pinning')
+
 
 class ProjectTestCase(test.NoDBTestCase):
 

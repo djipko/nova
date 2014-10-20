@@ -95,6 +95,7 @@ class MultiNodeComputeTestCase(BaseTestCase):
                                    'free_ram_mb': 130560,
                                    'metrics': '',
                                    'numa_topology': '',
+                                   'cpu_pinning': '',
                                    'stats': '',
                                    'id': 2,
                                    'host_ip': '127.0.0.1'}]

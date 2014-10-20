@@ -30,7 +30,8 @@ class ComputeNode(base.NovaPersistentObject, base.NovaObject):
     # Version 1.4: Added host ip field
     # Version 1.5: Added numa_topology field
     # Version 1.6: Added supported_instances
-    VERSION = '1.6'
+    # Version 1.7: Added cpu_pinning field
+    VERSION = '1.7'
 
     fields = {
         'id': fields.IntegerField(read_only=True),
@@ -57,10 +58,13 @@ class ComputeNode(base.NovaPersistentObject, base.NovaObject):
         # NOTE(pmurray): the supported_hv_specs field maps to the
         # supported_instances field in the database
         'supported_hv_specs': fields.ListOfObjectsField('HVSpec'),
+        'cpu_pinning': fields.StringField(nullable=True),
         }
 
     def obj_make_compatible(self, primitive, target_version):
         target_version = utils.convert_version_to_tuple(target_version)
+        if target_version < (1, 7) and 'cpu_pinning' in primitive:
+            del primitive['cpu_pinning']
         if target_version < (1, 6) and 'supported_hv_specs' in primitive:
             del primitive['supported_hv_specs']
         if target_version < (1, 5) and 'numa_topology' in primitive:
@@ -166,7 +170,8 @@ class ComputeNodeList(base.ObjectListBase, base.NovaObject):
     # Version 1.4 ComputeNode version 1.5
     # Version 1.5 Add use_slave to get_by_service
     # Version 1.6 ComputeNode version 1.6
-    VERSION = '1.6'
+    # Version 1.7 ComputeNode version 1.7
+    VERSION = '1.7'
     fields = {
         'objects': fields.ListOfObjectsField('ComputeNode'),
         }
@@ -178,7 +183,8 @@ class ComputeNodeList(base.ObjectListBase, base.NovaObject):
         '1.3': '1.4',
         '1.4': '1.5',
         '1.5': '1.5',
-        '1.6': '1.6'
+        '1.6': '1.6',
+        '1.7': '1.7',
         }
 
     @base.remotable_classmethod

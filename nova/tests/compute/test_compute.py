@@ -206,6 +206,7 @@ class BaseTestCase(test.TestCase):
                                    'metrics': '',
                                    'stats': '',
                                    'numa_topology': '',
+                                   'cpu_pinning': '',
                                    'id': 2,
                                    'host_ip': '127.0.0.1'}]
             return [objects.ComputeNode._from_db_object(
