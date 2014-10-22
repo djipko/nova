@@ -603,6 +603,10 @@ class SetOfIntegersField(AutoTypedField):
     AUTO_TYPE = Set(Integer())
 
 
+class ListOfSetsOfIntegersField(AutoTypedField):
+    AUTO_TYPE = List(SetOfIntegersField())
+
+
 class ListOfDictOfNullableStringsField(AutoTypedField):
     AUTO_TYPE = List(Dict(String(), nullable=True))
 

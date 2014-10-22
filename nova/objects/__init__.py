@@ -38,6 +38,7 @@ def register_all():
     __import__('nova.objects.hv_spec')
     __import__('nova.objects.instance')
     __import__('nova.objects.instance_action')
+    __import__('nova.objects.instance_cpu_pinning')
     __import__('nova.objects.instance_fault')
     __import__('nova.objects.instance_group')
     __import__('nova.objects.instance_info_cache')

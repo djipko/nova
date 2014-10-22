@@ -1777,3 +1777,7 @@ class CPUPinningInvalidInstanceUsage(Invalid):
 class ImageCPUPinningForbidden(Invalid):
     msg_fmt = _("Image property 'hw_cpu_policy' is not permitted to override "
                 "CPU pinning policy set against the flavor")
+
+
+class InstanceCPUPinningNotFound(NotFound):
+    msg_fmt = _("Instance %(instance_uuid)s does not specify cpu pinning data")
