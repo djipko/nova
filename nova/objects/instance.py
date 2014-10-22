@@ -40,7 +40,7 @@ _INSTANCE_OPTIONAL_JOINED_FIELDS = ['metadata', 'system_metadata',
                                     'pci_devices']
 # These are fields that are optional but don't translate to db columns
 _INSTANCE_OPTIONAL_NON_COLUMN_FIELDS = ['fault', 'numa_topology',
-                                        'pci_requests']
+                                        'pci_requests', 'cpu_pinning']
 
 # These are fields that can be specified as expected_attrs
 INSTANCE_OPTIONAL_ATTRS = (_INSTANCE_OPTIONAL_JOINED_FIELDS +
@@ -77,7 +77,8 @@ class Instance(base.NovaPersistentObject, base.NovaObject):
     # Version 1.14: Added numa_topology
     # Version 1.15: PciDeviceList 1.1
     # Version 1.16: Added pci_requests
-    VERSION = '1.16'
+    # Version 1.17: Added cpu_pinning
+    VERSION = '1.17'
 
     fields = {
         'id': fields.IntegerField(),
@@ -167,6 +168,7 @@ class Instance(base.NovaPersistentObject, base.NovaObject):
                                             nullable=True),
         'pci_requests': fields.ObjectField('InstancePCIRequests',
                                            nullable=True),
+        'cpu_pinning': fields.ObjectField('InstanceCPUPinning', nullable=True)
         }
 
     obj_extra_fields = ['name']
@@ -215,6 +217,8 @@ class Instance(base.NovaPersistentObject, base.NovaObject):
                               'default_ephemeral_device',
                               'default_swap_device', 'config_drive',
                               'cell_name']
+        if target_version < (1, 16) and 'cpu_pinning' in primitive:
+            del primitive['cpu_pinning']
         if target_version < (1, 14) and 'numa_topology' in primitive:
             del primitive['numa_topology']
         if target_version < (1, 10) and 'info_cache' in primitive:
@@ -295,6 +299,8 @@ class Instance(base.NovaPersistentObject, base.NovaObject):
             instance._load_numa_topology()
         if 'pci_requests' in expected_attrs:
             instance._load_pci_requests()
+        if 'cpu_pinning' in expected_attrs:
+            instance._load_cpu_pinning()
 
         if 'info_cache' in expected_attrs:
             if db_inst['info_cache'] is None:
@@ -362,11 +368,18 @@ class Instance(base.NovaPersistentObject, base.NovaObject):
                 'network_info': updates['info_cache'].network_info.json()
                 }
         numa_topology = updates.pop('numa_topology', None)
+        cpu_pinning = updates.pop('cpu_pinning', None)
         db_inst = db.instance_create(context, updates)
         if numa_topology:
             expected_attrs.append('numa_topology')
             numa_topology.instance_uuid = db_inst['uuid']
             numa_topology.create(context)
+
+        if cpu_pinning:
+            expected_attrs.append('cpu_pinning')
+            cpu_pinning.instance_uuid = db_inst['uuid']
+            cpu_pinning.save(context)
+
         self._from_db_object(context, self, db_inst, expected_attrs)
 
     @base.remotable
@@ -417,6 +430,14 @@ class Instance(base.NovaPersistentObject, base.NovaObject):
         # permitted to update the DB. all change to devices from here will
         # be dropped.
         pass
+
+    def _save_cpu_pinning(self, context):
+        # NOTE(ndipanov): This will never delete the existing data in the db,
+        # in other words - setting cpu_pinning to None on the instance will not
+        # delete the existing value. That's OK because we don't need that.
+        if self.cpu_pinning:
+            self.cpu_pinning.instance_uuid = self.uuid
+            self.cpu_pinning.save(context)
 
     @base.remotable
     def save(self, context, expected_vm_state=None,
@@ -575,6 +596,13 @@ class Instance(base.NovaPersistentObject, base.NovaObject):
             objects.InstancePCIRequests.get_by_instance_uuid(
                 self._context, self.uuid)
 
+    def _load_cpu_pinning(self):
+        try:
+            self.cpu_pinning = objects.InstanceCPUPinning.get_by_instance_uuid(
+                    self._context, self.uuid)
+        except exception.InstanceCPUPinningNotFound:
+            self.cpu_pinning = None
+
     def obj_load_attr(self, attrname):
         if attrname not in INSTANCE_OPTIONAL_ATTRS:
             raise exception.ObjectActionError(
@@ -598,6 +626,8 @@ class Instance(base.NovaPersistentObject, base.NovaObject):
             self._load_numa_topology()
         elif attrname == 'pci_requests':
             self._load_pci_requests()
+        elif attrname == 'cpu_pinning':
+            self._load_cpu_pinning()
         else:
             # FIXME(comstud): This should be optimized to only load the attr.
             self._load_generic(attrname)
@@ -681,7 +711,8 @@ class InstanceList(base.ObjectListBase, base.NovaObject):
     # Version 1.8: Instance <= version 1.14
     # Version 1.9: Instance <= version 1.15
     # Version 1.10: Instance <= version 1.16
-    VERSION = '1.10'
+    # Version 1.11: Instance <= version 1.17
+    VERSION = '1.11'
 
     fields = {
         'objects': fields.ListOfObjectsField('Instance'),
@@ -698,6 +729,7 @@ class InstanceList(base.ObjectListBase, base.NovaObject):
         '1.8': '1.14',
         '1.9': '1.15',
         '1.10': '1.16',
+        '1.11': '1.17',
         }
 
     @base.remotable_classmethod

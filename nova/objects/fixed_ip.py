@@ -34,7 +34,8 @@ class FixedIP(obj_base.NovaPersistentObject, obj_base.NovaObject):
     # Version 1.4: Added default_route field
     # Version 1.5: Added floating_ips field
     # Version 1.6: Instance 1.16
-    VERSION = '1.6'
+    # Version 1.7: Instance 1.17
+    VERSION = '1.7'
 
     fields = {
         'id': fields.IntegerField(),
@@ -71,10 +72,19 @@ class FixedIP(obj_base.NovaPersistentObject, obj_base.NovaObject):
             self.instance.obj_make_compatible(
                     primitive['instance']['nova_object.data'], '1.14')
             primitive['instance']['nova_object.version'] = '1.14'
+
         if target_version < (1, 2) and 'instance' in primitive:
             self.instance.obj_make_compatible(
                     primitive['instance']['nova_object.data'], '1.13')
             primitive['instance']['nova_object.version'] = '1.13'
+        elif target_version < (1, 6) and 'instance' in primitive:
+            self.instance.obj_make_compatible(
+                    primitive['instance']['nova_object.data'], '1.15')
+            primitive['instance']['nova_object.version'] = '1.15'
+        elif target_version < (1, 7) and 'instance' in primitive:
+            self.instance.obj_make_compatible(
+                    primitive['instance']['nova_object.data'], '1.16')
+            primitive['instance']['nova_object.version'] = '1.16'
 
     @staticmethod
     def _from_db_object(context, fixedip, db_fixedip, expected_attrs=None):
@@ -209,7 +219,8 @@ class FixedIPList(obj_base.ObjectListBase, obj_base.NovaObject):
     # Version 1.4: FixedIP <= version 1.4
     # Version 1.5: FixedIP <= version 1.5, added expected attrs to gets
     # Version 1.6: FixedIP <= version 1.6
-    VERSION = '1.6'
+    # Version 1.7: FixedIP <= version 1.7
+    VERSION = '1.7'
 
     fields = {
         'objects': fields.ListOfObjectsField('FixedIP'),
@@ -222,6 +233,7 @@ class FixedIPList(obj_base.ObjectListBase, obj_base.NovaObject):
         '1.4': '1.4',
         '1.5': '1.5',
         '1.6': '1.6',
+        '1.7': '1.7',
         }
 
     @obj_base.remotable_classmethod

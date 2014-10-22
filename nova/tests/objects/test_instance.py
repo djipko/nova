@@ -28,6 +28,7 @@ from nova.network import model as network_model
 from nova import notifications
 from nova import objects
 from nova.objects import instance
+from nova.objects import instance_cpu_pinning
 from nova.objects import instance_info_cache
 from nova.objects import instance_numa_topology
 from nova.objects import pci_device
@@ -35,6 +36,8 @@ from nova.objects import security_group
 from nova import test
 from nova.tests.api.openstack import fakes
 from nova.tests import fake_instance
+from nova.tests import matchers
+from nova.tests.objects import test_instance_cpu_pinning
 from nova.tests.objects import test_instance_fault
 from nova.tests.objects import test_instance_info_cache
 from nova.tests.objects import test_instance_numa_topology
@@ -74,7 +77,7 @@ class _TestInstanceObject(object):
         primitive = inst.obj_to_primitive()
         expected = {'nova_object.name': 'Instance',
                     'nova_object.namespace': 'nova',
-                    'nova_object.version': '1.16',
+                    'nova_object.version': '1.17',
                     'nova_object.data':
                         {'uuid': 'fake-uuid',
                          'launched_at': '1955-11-05T00:00:00Z'},
@@ -90,7 +93,7 @@ class _TestInstanceObject(object):
         primitive = inst.obj_to_primitive()
         expected = {'nova_object.name': 'Instance',
                     'nova_object.namespace': 'nova',
-                    'nova_object.version': '1.16',
+                    'nova_object.version': '1.17',
                     'nova_object.data':
                         {'uuid': 'fake-uuid',
                          'access_ip_v4': '1.2.3.4',
@@ -127,6 +130,7 @@ class _TestInstanceObject(object):
         exp_cols.remove('fault')
         exp_cols.remove('numa_topology')
         exp_cols.remove('pci_requests')
+        exp_cols.remove('cpu_pinning')
 
         db.instance_get_by_uuid(
             self.context, 'uuid',
@@ -147,6 +151,11 @@ class _TestInstanceObject(object):
                 self.context, self.fake_instance['uuid'],
                 columns=['pci_requests']
                 ).AndReturn(fake_requests)
+        fake_pinning = test_instance_cpu_pinning.fake_db_extra
+        db.instance_extra_get_by_instance_uuid(
+                self.context, self.fake_instance['uuid'],
+                columns=['cpu_pinning']
+                ).AndReturn(fake_pinning)
 
         self.mox.ReplayAll()
         inst = instance.Instance.get_by_uuid(
@@ -412,6 +421,23 @@ class _TestInstanceObject(object):
         inst.save()
         self.assertNotIn('pci_devices',
                          mock_fdo.call_args_list[0][1]['expected_attrs'])
+
+    @mock.patch('nova.db.instance_extra_update_by_uuid')
+    @mock.patch('nova.db.instance_update_and_get_original')
+    @mock.patch('nova.objects.Instance._from_db_object')
+    def test_save_updates_cpu_pinning(self, mock_fdo, mock_update,
+                                      mock_extra_update):
+        mock_update.return_value = None, None
+        inst = instance.Instance(
+                context=self.context, id=123, uuid='fake-uuid')
+        inst.cpu_pinning = (
+                instance_cpu_pinning.InstanceCPUPinning.obj_from_topology(
+                    test_instance_cpu_pinning.fake_cpu_pinning))
+        inst.save()
+        mock_extra_update.assert_called_once_with(
+                self.context, inst.uuid,
+                {'cpu_pinning':
+                    test_instance_cpu_pinning.fake_cpu_pinning.to_json()})
 
     def test_get_deleted(self):
         fake_inst = dict(self.fake_instance, id=123, deleted=123)
@@ -692,6 +718,22 @@ class _TestInstanceObject(object):
                 instance_numa_topology.InstanceNUMATopology
                 .get_by_instance_uuid(self.context, inst.uuid))
         self.assertEqual(inst.numa_topology.id, got_numa_topo.id)
+
+    def test_create_with_cpu_pinning(self):
+        inst = instance.Instance(uuid=self.fake_instance['uuid'],
+                cpu_pinning=instance_cpu_pinning.InstanceCPUPinning
+                        .obj_from_topology(
+                            test_instance_cpu_pinning.fake_cpu_pinning))
+
+        inst.create(self.context)
+        self.assertIsNotNone(inst.cpu_pinning)
+        got_cpu_pinning = (
+                instance_cpu_pinning.InstanceCPUPinning.get_by_instance_uuid(
+                    self.context, inst.uuid))
+        for cell, got_cell in zip(
+                inst.cpu_pinning.cells, got_cpu_pinning.cells):
+            self.assertThat(cell.pinning,
+                            matchers.DictMatches(got_cell.pinning))
 
     def test_recreate_fails(self):
         inst = instance.Instance(user_id=self.context.user_id,
