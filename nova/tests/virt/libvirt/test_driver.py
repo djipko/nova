@@ -8416,12 +8416,12 @@ class LibvirtConnTestCase(test.NoDBTestCase):
         cpu_0_0.id = 0
         cpu_0_0.socket_id = 0
         cpu_0_0.core_id = 0
-        cpu_0_0.sibling = 0
+        cpu_0_0.siblings = set([0, 1])
         cpu_0_1 = vconfig.LibvirtConfigCapsNUMACPU()
         cpu_0_1.id = 1
         cpu_0_1.socket_id = 0
         cpu_0_1.core_id = 1
-        cpu_0_1.sibling = 1
+        cpu_0_1.siblings = set([0, 1])
         cell_0.cpus = [cpu_0_0, cpu_0_1]
 
         cell_1 = vconfig.LibvirtConfigCapsNUMACell()
@@ -8431,12 +8431,12 @@ class LibvirtConnTestCase(test.NoDBTestCase):
         cpu_1_0.id = 2
         cpu_1_0.socket_id = 1
         cpu_1_0.core_id = 0
-        cpu_1_0.sibling = 2
+        cpu_1_0.siblings = set([2, 3])
         cpu_1_1 = vconfig.LibvirtConfigCapsNUMACPU()
         cpu_1_1.id = 3
         cpu_1_1.socket_id = 1
         cpu_1_1.core_id = 1
-        cpu_1_1.sibling = 3
+        cpu_1_1.siblings = set([2, 3])
         cell_1.cpus = [cpu_1_0, cpu_1_1]
 
         topology.cells = [cell_0, cell_1]
@@ -8480,6 +8480,40 @@ class LibvirtConnTestCase(test.NoDBTestCase):
         ) as (has_min_version, get_caps):
             self.assertIsNone(conn._get_host_numa_topology())
         get_caps.assert_called_once_with()
+
+    def test_get_host_cpu_pinning_topology(self):
+        caps = vconfig.LibvirtConfigCaps()
+        caps.host = vconfig.LibvirtConfigCapsHost()
+        caps.host.topology = self._fake_caps_numa_topology()
+
+        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+        expected_topo_dict = {'cells': [
+            {'cpuset': '0,1', 'sib': ['0,1'], 'pin': '', 'id': 0},
+            {'cpuset': '2,3', 'sib': ['2,3'], 'pin': '', 'id': 1}]}
+        with mock.patch.object(conn, '_get_host_capabilities',
+                return_value=caps):
+            got_topo_dict = conn._get_host_cpu_pinning_topology()._to_dict()
+            self.assertThat(
+                    expected_topo_dict, matchers.DictMatches(got_topo_dict))
+
+    def test_get_host_cpu_pinning_topology_pin_set(self):
+        caps = vconfig.LibvirtConfigCaps()
+        caps.host = vconfig.LibvirtConfigCapsHost()
+        caps.host.topology = self._fake_caps_numa_topology()
+
+        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
+        expected_topo_dict = {'cells': [
+            {'cpuset': '0,1', 'sib': ['0,1'], 'pin': '', 'id': 0},
+            {'cpuset': '3', 'sib': None, 'pin': '', 'id': 1}]}
+        with contextlib.nested(
+            mock.patch.object(
+                    conn, '_get_host_capabilities', return_value=caps),
+            mock.patch.object(
+                    hardware, 'get_vcpu_pin_set', return_value=set([0, 1, 3]))
+                ):
+            got_topo_dict = conn._get_host_cpu_pinning_topology()._to_dict()
+            self.assertThat(
+                    expected_topo_dict, matchers.DictMatches(got_topo_dict))
 
     def test_get_host_numa_topology_not_supported(self):
         # Tests that libvirt isn't new enough to support numa topology.

@@ -4878,6 +4878,36 @@ class LibvirtDriver(driver.ComputeDriver):
                 cell.cpuset &= allowed_cpus
         return topology
 
+    def _get_host_cpu_pinning_topology(self):
+        caps = self._get_host_capabilities()
+        topology = caps.host.topology
+
+        if topology is None or not topology.cells:
+            return
+
+        pinning_cells = []
+        allowed_cpus = hardware.get_vcpu_pin_set()
+        for cell in topology.cells:
+            cpuset = set(cpu.id for cpu in cell.cpus)
+            if allowed_cpus:
+                cpuset &= allowed_cpus
+
+            siblings = sorted(map(set,
+                                  set(tuple(cpu.siblings)
+                                        if cpu.siblings else ()
+                                      for cpu in cell.cpus)
+                                  ))
+            if allowed_cpus:
+                siblings = [sib & allowed_cpus for sib in siblings]
+            # Filter out singles and empty sibling sets that may be left
+            siblings = [sib for sib in siblings if len(sib) > 1] or None
+
+            pinning_cell = hardware.VirtHostCPUPinningCell(cell.id, cpuset,
+                    siblings=siblings)
+            pinning_cells.append(pinning_cell)
+
+        return hardware.VirtHostCPUPinning(cells=pinning_cells)
+
     def get_all_volume_usage(self, context, compute_host_bdms):
         """Return usage info for volumes attached to vms on
            a given host.
