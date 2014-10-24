@@ -122,6 +122,7 @@ class FakeVirtDriver(driver.ComputeDriver):
             'cpu_info': '',
             'numa_topology': (
                 self.numa_topology.to_json() if self.numa_topology else None),
+            'cpu_pinning': None,
         }
         if self.pci_support:
             d['pci_passthrough_devices'] = jsonutils.dumps(self.pci_devices)

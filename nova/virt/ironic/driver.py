@@ -269,6 +269,7 @@ class IronicDriver(virt_driver.ComputeDriver):
                 _get_nodes_supported_instances(cpu_arch)),
             'stats': jsonutils.dumps(nodes_extra_specs),
             'host': CONF.host,
+            'cpu_pinning': None,
         }
         dic.update(nodes_extra_specs)
         return dic

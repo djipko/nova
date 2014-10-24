@@ -10610,6 +10610,9 @@ class HostStateTestCase(test.NoDBTestCase):
                                 1, set([1, 2]), 1024),
                            hardware.VirtNUMATopologyCellUsage(
                                 2, set([3, 4]), 1024)])
+    cpu_pinning = hardware.VirtHostCPUPinning(
+                cells=[hardware.VirtHostCPUPinningCell(0, set([0, 1])),
+                       hardware.VirtHostCPUPinningCell(1, set([2, 3]))])
 
     class FakeConnection(libvirt_driver.LibvirtDriver):
         """Fake connection object."""
@@ -10663,6 +10666,9 @@ class HostStateTestCase(test.NoDBTestCase):
         def _get_host_numa_topology(self):
             return HostStateTestCase.numa_topology
 
+        def _get_host_cpu_pinning_topology(self):
+            return HostStateTestCase.cpu_pinning
+
     def test_update_status(self):
         drvr = HostStateTestCase.FakeConnection()
 
@@ -10691,6 +10697,10 @@ class HostStateTestCase(test.NoDBTestCase):
                             stats['numa_topology'])._to_dict(),
                         matchers.DictMatches(
                                 HostStateTestCase.numa_topology._to_dict()))
+        self.assertThat(hardware.VirtHostCPUPinning.from_json(
+                            stats['cpu_pinning'])._to_dict(),
+                        matchers.DictMatches(
+                                HostStateTestCase.cpu_pinning._to_dict()))
 
 
 class LibvirtDriverTestCase(test.NoDBTestCase):

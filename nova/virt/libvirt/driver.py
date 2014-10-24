@@ -5034,6 +5034,12 @@ class LibvirtDriver(driver.ComputeDriver):
         else:
             data['numa_topology'] = None
 
+        cpu_pinning = self._get_host_cpu_pinning_topology()
+        if cpu_pinning:
+            data['cpu_pinning'] = cpu_pinning.to_json()
+        else:
+            data['cpu_pinning'] = None
+
         return data
 
     def check_instance_shared_storage_local(self, context, instance):

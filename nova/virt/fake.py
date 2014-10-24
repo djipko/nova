@@ -118,6 +118,7 @@ class FakeDriver(driver.ComputeDriver):
                                                    hvtype.FAKE,
                                                    vm_mode.HVM)]),
           'numa_topology': None,
+          'cpu_pinning': None,
           }
         self._mounts = {}
         self._interfaces = {}

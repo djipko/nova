@@ -134,6 +134,7 @@ class HostOps(object):
                    [(arch.I686, hvtype.HYPERV, vm_mode.HVM),
                     (arch.X86_64, hvtype.HYPERV, vm_mode.HVM)]),
                'numa_topology': None,
+               'cpu_pinning': None,
                }
 
         return dic
