@@ -84,7 +84,7 @@ system_metadata_flavor_props = {
 
 
 system_metadata_flavor_extra_props = [
-    'hw:numa_cpus.', 'hw:numa_mem.',
+    'hw:numa_cpus.', 'hw:numa_mem.', 'hw:cpu_policy',
 ]
 
 

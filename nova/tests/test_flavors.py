@@ -351,6 +351,7 @@ class InstanceTypeToolsTest(test.TestCase):
             'hw:numa_cpus.0': '456',
             'hw:numa_mem.1': '789',
             'hw:numa_cpus.1': 'ABC',
+            'hw:cpu_policy': 'dedicated',
             'foo': 'bar',
         }
         sysmeta = flavors.save_flavor_info({}, instance_type)
@@ -360,6 +361,7 @@ class InstanceTypeToolsTest(test.TestCase):
             'hw:numa_cpus.0': '456',
             'hw:numa_mem.1': '789',
             'hw:numa_cpus.1': 'ABC',
+            'hw:cpu_policy': 'dedicated',
         }
         self.assertEqual(expected_extra_specs, _instance_type['extra_specs'])
         flavors.delete_flavor_info(sysmeta, '')
