@@ -83,6 +83,7 @@ class Claim(NopClaim):
             # the primitive form.
             self.instance = jsonutils.to_primitive(instance)
         self._numa_topology_loaded = False
+        self._cpu_pinning_loaded = False
         self.tracker = tracker
 
         if not overhead:
@@ -121,6 +122,26 @@ class Claim(NopClaim):
             self._numa_topology_loaded = True
             return self._numa_topology
 
+    @property
+    def cpu_pinning(self):
+        if self._cpu_pinning_loaded:
+            return self._cpu_pinning
+        else:
+            if isinstance(self.instance, obj_base.NovaObject):
+                self._cpu_pinning = self.instance.cpu_pinning
+            else:
+                try:
+                    self._cpu_pinning = (
+                        objects.InstanceCPUPinning.get_by_instance_uuid(
+                            self.context, self.instance['uuid'])
+                        )
+                except exception.InstanceCPUPinningNotFound:
+                    self._cpu_pinning = None
+            if self._cpu_pinning:
+                self._cpu_pinning = self._cpu_pinning.topology_from_obj()
+            self._cpu_pinning_loaded = True
+            return self._cpu_pinning
+
     def abort(self):
         """Compute operation requiring claimed resources has failed or
         been aborted.
@@ -158,6 +179,7 @@ class Claim(NopClaim):
         reasons = [self._test_memory(resources, memory_mb_limit),
                    self._test_disk(resources, disk_gb_limit),
                    self._test_numa_topology(resources, numa_topology_limit),
+                   self._test_cpu_pinning(resources),
                    self._test_pci()]
         reasons = reasons + self._test_ext_resources(limits)
         reasons = [r for r in reasons if r is not None]
@@ -209,6 +231,16 @@ class Claim(NopClaim):
             return hardware.VirtNUMAHostTopology.claim_test(
                     host_topology, instances_topology, limit)
 
+    def _test_cpu_pinning(self, resources):
+        host_pinning = resources.get('cpu_pinning')
+        instances_pinning = [self.cpu_pinning] if self.cpu_pinning else []
+        if host_pinning:
+            host_pinning = hardware.VirtHostCPUPinning.from_json(host_pinning)
+            return hardware.VirtHostCPUPinning.claim_test(
+                    host_pinning, instances_pinning)
+        elif instances_pinning:
+            return _("This host does not allow pinning")
+
     def _test(self, type_, unit, total, used, requested, limit):
         """Test if the given type of resource needed for a claim can be safely
         allocated.
@@ -246,6 +278,8 @@ class ResizeClaim(Claim):
     def __init__(self, context, instance, instance_type, image_meta, tracker,
                  resources, overhead=None, limits=None):
         self.context = context
+        if not isinstance(instance_type, obj_base.NovaObject):
+            instance_type = objects.Flavor(context, **instance_type)
         self.instance_type = instance_type
         self.image_meta = image_meta
         super(ResizeClaim, self).__init__(context, instance, tracker,
@@ -266,6 +300,12 @@ class ResizeClaim(Claim):
     def numa_topology(self):
         return hardware.VirtNUMAInstanceTopology.get_constraints(
                     self.instance_type, self.image_meta)
+
+    @property
+    def cpu_pinning(self):
+        return hardware.VirtInstanceCPUPinning.get_constraints(
+                self.instance_type, self.image_meta,
+                numa_topology=self.numa_topology)
 
     def _test_pci(self):
         pci_requests = objects.InstancePCIRequests.\

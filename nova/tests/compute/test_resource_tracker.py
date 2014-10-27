@@ -153,7 +153,7 @@ class BaseTestCase(test.TestCase):
                                             manager=CONF.conductor.manager)
 
         self._instances = {}
-        self._numa_topologies = {}
+        self._instance_extras = {}
         self._instance_types = {}
 
         self.stubs.Set(self.conductor.db,
@@ -284,17 +284,22 @@ class BaseTestCase(test.TestCase):
             'root_device_name': None,
         }
         numa_topology = kwargs.pop('numa_topology', None)
-        if numa_topology:
-            numa_topology = {
+        cpu_pinning = kwargs.pop('cpu_pinning', None)
+        instance_extra = None
+        if numa_topology or cpu_pinning:
+            instance_extra = {
                 'id': 1, 'created_at': None, 'updated_at': None,
                 'deleted_at': None, 'deleted': None,
                 'instance_uuid': instance['uuid'],
                 'numa_topology': numa_topology.to_json()
+                                    if numa_topology else None,
+                'cpu_pinning': cpu_pinning.to_json()
+                                    if cpu_pinning else None,
             }
         instance.update(kwargs)
 
         self._instances[instance_uuid] = instance
-        self._numa_topologies[instance_uuid] = numa_topology
+        self._instance_extras[instance_uuid] = instance_extra
         return instance
 
     def _fake_flavor_create(self, **kwargs):
@@ -328,7 +333,7 @@ class BaseTestCase(test.TestCase):
 
     def _fake_instance_extra_get_by_instance_uuid(self, context,
                                                   instance_uuid, columns=None):
-        return self._numa_topologies.get(instance_uuid)
+        return self._instance_extras.get(instance_uuid)
 
     def _fake_flavor_get(self, ctxt, id_):
         return self._instance_types[id_]

@@ -15,6 +15,7 @@
 
 """Tests for resource tracker claims."""
 
+import contextlib
 import uuid
 
 import mock
@@ -36,7 +37,7 @@ class FakeResourceHandler(object):
 
     def test_resources(self, usage, limits):
         self.test_called = True
-        self.usage_is_itype = usage.get('name') is 'fakeitype'
+        self.usage_is_itype = usage.get('name') == 'fakeitype'
         return []
 
 
@@ -67,21 +68,25 @@ class ClaimTestCase(test.NoDBTestCase):
 
     def _claim(self, limits=None, overhead=None, **kwargs):
         numa_topology = kwargs.pop('numa_topology', None)
+        cpu_pinning = kwargs.pop('cpu_pinning', None)
         instance = self._fake_instance(**kwargs)
-        if numa_topology:
-            db_numa_topology = {
+        if numa_topology or cpu_pinning:
+            db_instance_extra = {
                     'id': 1, 'created_at': None, 'updated_at': None,
                     'deleted_at': None, 'deleted': None,
                     'instance_uuid': instance['uuid'],
                     'numa_topology': numa_topology.to_json()
+                                        if numa_topology else None,
+                    'cpu_pinning': cpu_pinning.to_json()
+                                        if cpu_pinning else None,
                 }
         else:
-            db_numa_topology = None
+            db_instance_extra = None
         if overhead is None:
             overhead = {'memory_mb': 0}
         with mock.patch.object(
                 db, 'instance_extra_get_by_instance_uuid',
-                return_value=db_numa_topology):
+                return_value=db_instance_extra):
             return claims.Claim('context', instance, self.tracker,
                                 self.resources, overhead=overhead,
                                 limits=limits)
@@ -94,7 +99,8 @@ class ClaimTestCase(test.NoDBTestCase):
             'ephemeral_gb': 5,
             'vcpus': 1,
             'system_metadata': {},
-            'numa_topology': None
+            'numa_topology': None,
+            'cpu_pinning': None,
         }
         instance.update(**kwargs)
         return instance
@@ -106,7 +112,8 @@ class ClaimTestCase(test.NoDBTestCase):
             'memory_mb': 1,
             'vcpus': 1,
             'root_gb': 1,
-            'ephemeral_gb': 2
+            'ephemeral_gb': 2,
+            'extra_specs': {}
         }
         instance_type.update(**kwargs)
         return instance_type
@@ -124,7 +131,11 @@ class ClaimTestCase(test.NoDBTestCase):
             'numa_topology': hardware.VirtNUMAHostTopology(
                 cells=[hardware.VirtNUMATopologyCellUsage(1, [1, 2], 512),
                        hardware.VirtNUMATopologyCellUsage(2, [3, 4], 512)]
-                ).to_json()
+                ).to_json(),
+            'cpu_pinning': hardware.VirtHostCPUPinning(
+                cells=[hardware.VirtHostCPUPinningCell(1, set([1, 2])),
+                       hardware.VirtHostCPUPinningCell(2, set([3, 4]))]
+                ).to_json(),
         }
         if values:
             resources.update(values)
@@ -265,6 +276,19 @@ class ClaimTestCase(test.NoDBTestCase):
         self._claim(limits={'numa_topology': limit_topo.to_json()},
                     numa_topology=huge_instance)
 
+    def test_cpu_pinning_passes(self, mock_get):
+        inst_pin = hardware.VirtInstanceCPUPinning(
+                cells=[hardware.VirtInstanceCPUPinningCell(set([0, 1])),
+                       hardware.VirtInstanceCPUPinningCell(set([2, 3]))])
+        self._claim(cpu_pinning=inst_pin)
+
+    def test_cpu_pinning_fails(self, mock_get):
+        inst_pin = hardware.VirtInstanceCPUPinning(
+                cells=[hardware.VirtInstanceCPUPinningCell(set([0, 1])),
+                       hardware.VirtInstanceCPUPinningCell(set([2, 3, 4]))])
+        self.assertRaises(exception.ComputeResourcesUnavailable,
+                          self._claim, cpu_pinning=inst_pin)
+
     def test_abort(self, mock_get):
         claim = self._abort()
         self.assertTrue(claim.tracker.icalled)
@@ -290,11 +314,16 @@ class ResizeClaimTestCase(ClaimTestCase):
     def _claim(self, limits=None, overhead=None, **kwargs):
         instance_type = self._fake_instance_type(**kwargs)
         numa_constraint = kwargs.pop('numa_topology', None)
+        cpu_pinning_constraint = kwargs.pop('cpu_pinning', None)
         if overhead is None:
             overhead = {'memory_mb': 0}
-        with mock.patch.object(
-                hardware.VirtNUMAInstanceTopology, 'get_constraints',
-                return_value=numa_constraint):
+        with contextlib.nested(
+                mock.patch.object(
+                    hardware.VirtNUMAInstanceTopology, 'get_constraints',
+                    return_value=numa_constraint),
+                mock.patch.object(
+                    hardware.VirtInstanceCPUPinning, 'get_constraints',
+                    return_value=cpu_pinning_constraint)):
             return claims.ResizeClaim('context', self.instance, instance_type,
                                       {}, self.tracker, self.resources,
                                       overhead=overhead, limits=limits)

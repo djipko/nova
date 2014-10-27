@@ -35,6 +35,7 @@ _VIRT_DRIVER_AVAIL_RESOURCES = {
     'hypervisor_hostname': 'fakehost',
     'cpu_info': '',
     'numa_topology': None,
+    'cpu_pinning': None,
 }
 
 _INSTANCE_TYPE_FIXTURES = {
@@ -294,6 +295,7 @@ class TestUpdateAvailableResources(BaseTestCase):
         expected_resources = {
             'host_ip': 'fake-ip',
             'numa_topology': None,
+            'cpu_pinning': None,
             'metrics': '[]',
             'cpu_info': '',
             'hypervisor_hostname': 'fakehost',
@@ -331,6 +333,7 @@ class TestUpdateAvailableResources(BaseTestCase):
         expected_resources = {
             'host_ip': 'fake-ip',
             'numa_topology': None,
+            'cpu_pinning': None,
             'metrics': '[]',
             'cpu_info': '',
             'hypervisor_hostname': 'fakehost',
@@ -367,6 +370,7 @@ class TestUpdateAvailableResources(BaseTestCase):
         expected_resources = {
             'host_ip': 'fake-ip',
             'numa_topology': None,
+            'cpu_pinning': None,
             'metrics': '[]',
             'cpu_info': '',
             'hypervisor_hostname': 'fakehost',
@@ -434,6 +438,7 @@ class TestUpdateAvailableResources(BaseTestCase):
         expected_resources = {
             'host_ip': 'fake-ip',
             'numa_topology': None,
+            'cpu_pinning': None,
             'metrics': '[]',
             'cpu_info': '',
             'hypervisor_hostname': 'fakehost',
@@ -488,6 +493,7 @@ class TestUpdateAvailableResources(BaseTestCase):
         expected_resources = {
             'host_ip': 'fake-ip',
             'numa_topology': None,
+            'cpu_pinning': None,
             'metrics': '[]',
             'cpu_info': '',
             'hypervisor_hostname': 'fakehost',
@@ -537,6 +543,7 @@ class TestUpdateAvailableResources(BaseTestCase):
         expected_resources = {
             'host_ip': 'fake-ip',
             'numa_topology': None,
+            'cpu_pinning': None,
             'metrics': '[]',
             'cpu_info': '',
             'hypervisor_hostname': 'fakehost',
@@ -589,6 +596,7 @@ class TestUpdateAvailableResources(BaseTestCase):
         expected_resources = {
             'host_ip': 'fake-ip',
             'numa_topology': None,
+            'cpu_pinning': None,
             'metrics': '[]',
             'cpu_info': '',
             'hypervisor_hostname': 'fakehost',
