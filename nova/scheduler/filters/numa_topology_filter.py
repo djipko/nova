@@ -28,8 +28,9 @@ class NUMATopologyFilter(filters.BaseHostFilter):
         cpu_ratio = CONF.cpu_allocation_ratio
         request_spec = filter_properties.get('request_spec', {})
         instance = request_spec.get('instance_properties', {})
-        instance_topology = hardware.instance_topology_from_instance(instance)
-        host_topology, _fmt = hardware.host_topology_and_format_from_host(
+        instance_topology = hardware.instance_numa_topology_from_instance(
+                instance)
+        host_topology, _fmt = hardware.host_numa_topology_and_format_from_host(
                 host_state)
         if instance_topology:
             if host_topology:

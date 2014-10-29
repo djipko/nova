@@ -1333,7 +1333,10 @@ class HelperMethodsTestCase(test.NoDBTestCase):
         instance = {'uuid': fake_uuid}
 
         with mock.patch.object(objects.InstanceNUMATopology,
-                'get_by_instance_uuid', return_value=None) as get_mock:
+                'get_by_instance_uuid',
+                return_value=objects.InstanceNUMATopology.obj_from_topology(
+                    self.instancetopo)
+                ) as get_mock:
             res = hw.get_host_numa_usage_from_instance(host, instance)
             self.assertIsInstance(res, six.string_types)
             self.assertTrue(get_mock.called)
@@ -1344,7 +1347,10 @@ class HelperMethodsTestCase(test.NoDBTestCase):
         instance = objects.Instance(context=self.context, uuid=fake_uuid)
 
         with mock.patch.object(objects.InstanceNUMATopology,
-                'get_by_instance_uuid', return_value=None) as get_mock:
+                'get_by_instance_uuid',
+                return_value=objects.InstanceNUMATopology.obj_from_topology(
+                    self.instancetopo)
+                ) as get_mock:
             res = hw.get_host_numa_usage_from_instance(host, instance)
             self.assertIsInstance(res, six.string_types)
             self.assertTrue(get_mock.called)

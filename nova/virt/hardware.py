@@ -14,6 +14,7 @@
 
 import collections
 import copy
+import functools
 import itertools
 
 from oslo.config import cfg
@@ -1301,35 +1302,58 @@ class VirtHostCPUPinning(VirtNUMATopology):
 
 
 # TODO(ndipanov): Remove when all code paths are using objects
-def instance_topology_from_instance(instance):
-    """Convenience method for getting the numa_topology out of instances
+class _VirtNUMATopologyExtractSpec(object):
+    def __init__(self):
+        self.instance_topo_class = VirtNUMAInstanceTopology
+        self.host_topo_class = VirtNUMAHostTopology
+        self.attr_name = 'numa_topology'
+
+    @property
+    def instance_object_class(cls):
+        return objects.InstanceNUMATopology
+
+    def _extract_from_request_spec_cells(self, dict_cells):
+        cells = [objects.InstanceNUMACell(id=cell['id'],
+                                      cpuset=set(cell['cpuset']),
+                                      memory=cell['memory'])
+                 for cell in dict_cells]
+        return objects.InstanceNUMATopology(cells=cells)
+
+
+# TODO(ndipanov): Remove when all code paths are using objects
+def _virt_topology_from_instance(extract_spec, instance):
+    """Convenience method for extracting virt objects out of instances
 
     Since we may get an Instance as either a dict, a db object, or an actual
     Instance object, this makes sure we get beck either None, or an instance
-    of objects.InstanceNUMATopology class.
+    of the class specified by the extract_spec.instance_topo_class
     """
     if isinstance(instance, objects.Instance):
         # NOTE (ndipanov): This may cause a lazy-load of the attribute
-        instance_numa_topology = instance.numa_topology
+        instance_virt_topology = getattr(instance, extract_spec.attr_name)
     else:
-        if 'numa_topology' in instance:
-            instance_numa_topology = instance['numa_topology']
+        if extract_spec.attr_name in instance:
+            instance_virt_topology = instance[extract_spec.attr_name]
         elif 'uuid' in instance:
             try:
-                instance_numa_topology = (
-                    objects.InstanceNUMATopology.get_by_instance_uuid(
+                instance_virt_topology = (
+                    extract_spec.instance_object_class.get_by_instance_uuid(
                             context.get_admin_context(), instance['uuid'])
                     )
             except exception.NumaTopologyNotFound:
-                instance_numa_topology = None
+                instance_virt_topology = None
         else:
-            instance_numa_topology = None
+            instance_virt_topology = None
 
-    if instance_numa_topology:
-        if isinstance(instance_numa_topology, six.string_types):
-            instance_numa_topology = VirtNUMAInstanceTopology.from_json(
-                            instance_numa_topology)
-        elif isinstance(instance_numa_topology, dict):
+    if instance_virt_topology:
+        if isinstance(instance_virt_topology, six.string_types):
+            instance_virt_topology = (
+                    extract_spec.instance_topo_class.from_json(
+                        instance_virt_topology))
+        elif isinstance(
+                instance_virt_topology, extract_spec.instance_object_class):
+            instance_virt_topology = instance_virt_topology.topology_from_obj()
+        elif isinstance(instance_virt_topology, dict):
             # NOTE (ndipanov): A horrible hack so that we can use this in the
             # scheduler, since the InstanceNUMATopology object is serialized
             # raw using the obj_base.obj_to_primitive, (which is buggy and will
@@ -1339,78 +1363,101 @@ def instance_topology_from_instance(instance):
             # scheduler.utils.build_request_spec called in the conductor.
             #
             # Remove when request_spec is a proper object itself!
-            dict_cells = instance_numa_topology.get('cells')
+            dict_cells = instance_virt_topology.get('cells')
             if dict_cells:
-                cells = [objects.InstanceNUMACell(id=cell['id'],
-                                                  cpuset=set(cell['cpuset']),
-                                                  memory=cell['memory'])
-                         for cell in dict_cells]
-                instance_numa_topology = (
-                        objects.InstanceNUMATopology(cells=cells))
+                instance_virt_topology = (
+                        extract_spec._extract_from_request_spec_cells(
+                            dict_cells))
 
-    return instance_numa_topology
+    return instance_virt_topology
 
 
 # TODO(ndipanov): Remove when all code paths are using objects
-def host_topology_and_format_from_host(host):
-    """Convenience method for getting the numa_topology out of hosts
+instance_numa_topology_from_instance = functools.partial(
+        _virt_topology_from_instance, _VirtNUMATopologyExtractSpec())
+
+
+# TODO(ndipanov): Remove when all code paths are using objects
+def _host_topology_and_format_from_host(extract_spec, host):
+    """Convenience method for getting the virt objects out of hosts
 
     Since we may get a host as either a dict, a db object, or an actual
     ComputeNode object, or an instance of HostState class, this makes sure we
-    get beck either None, or an instance of VirtNUMAHostTopology class.
+    get beck either None, or an instance of the class specified by the
+    extract_spec.host_topo_class
 
     :returns: A two-tuple, first element is the topology itself or None, second
               is a boolean set to True if topology was in json format.
     """
     was_json = False
     try:
-        host_numa_topology = host.get('numa_topology')
+        host_virt_topology = host.get(extract_spec.attr_name)
     except AttributeError:
-        host_numa_topology = host.numa_topology
+        host_virt_topology = getattr(host, extract_spec.attr_name)
 
-    if host_numa_topology is not None and isinstance(
-            host_numa_topology, six.string_types):
+    if host_virt_topology is not None and isinstance(
+            host_virt_topology, six.string_types):
         was_json = True
-        host_numa_topology = VirtNUMAHostTopology.from_json(host_numa_topology)
+        host_virt_topology = extract_spec.host_topo_class.from_json(
+                host_virt_topology)
 
-    return host_numa_topology, was_json
+    return host_virt_topology, was_json
 
 
 # TODO(ndipanov): Remove when all code paths are using objects
-def get_host_numa_usage_from_instance(host, instance, free=False,
-                                     never_serialize_result=False):
-    """Calculate new 'numa_usage' of 'host' from 'instance' NUMA usage
+host_numa_topology_and_format_from_host = functools.partial(
+        _host_topology_and_format_from_host, _VirtNUMATopologyExtractSpec())
+
+
+# TODO(ndipanov): Remove when all code paths are using objects
+def _get_host_topology_usage_from_instance(extract_spec, host, instance,
+                                           free=False,
+                                           never_serialize_result=False):
+    """Call the topology usage_from_instances method
 
     This is a convenience method to help us handle the fact that we use several
     different types throughout the code (ComputeNode and Instance objects,
     dicts, scheduler HostState) which may have both json and deserialized
-    versions of VirtNUMATopology classes.
+    versions of some topology classes form this module.
 
     Handles all the complexity without polluting the class method with it.
 
+    :param extract_spec: An object containing attributes: instance_topo_class,
+                         host_topo_class, attr_name, instance_object_class
+                         attributes and _extract_from_request_spec_cells method
+                         used to parametrize the logic of the method. See
+                         _VirtNUMATopologyExtractSpec for an example.
     :param host: nova.objects.ComputeNode instance, or a db object or dict
     :param instance: nova.objects.Instance instance, or a db object or dict
     :param free: if True the the returned topology will have it's usage
                  decreased instead.
     :param never_serialize_result: if True result will always be an instance of
-                                   VirtNUMAHostTopology class.
+                                   extract_spec.host_topo_class class.
 
     :returns: numa_usage in the format it was on the host or
-              VirtNUMAHostTopology instance if never_serialize_result was True
+              extract_spec.host_topo_class instance if never_serialize_result
+              was True
     """
-    instance_numa_topology = instance_topology_from_instance(instance)
-    if instance_numa_topology:
-        instance_numa_topology = [instance_numa_topology]
+    instance_virt_topology = _virt_topology_from_instance(
+            extract_spec, instance)
+    if instance_virt_topology:
+        instance_virt_topology = [instance_virt_topology]
 
-    host_numa_topology, jsonify_result = host_topology_and_format_from_host(
-            host)
+    host_virt_topology, jsonify_result = _host_topology_and_format_from_host(
+            extract_spec, host)
 
-    updated_numa_topology = (
-        VirtNUMAHostTopology.usage_from_instances(
-                host_numa_topology, instance_numa_topology, free=free))
+    updated_virt_topology = (
+        extract_spec.host_topo_class.usage_from_instances(
+                host_virt_topology, instance_virt_topology, free=free))
 
-    if updated_numa_topology is not None:
+    if updated_virt_topology is not None:
         if jsonify_result and not never_serialize_result:
-            updated_numa_topology = updated_numa_topology.to_json()
+            updated_virt_topology = updated_virt_topology.to_json()
 
-    return updated_numa_topology
+    return updated_virt_topology
+
+
+# TODO(ndipanov): Remove when all code paths are using objects
+get_host_numa_usage_from_instance = functools.partial(
+         _get_host_topology_usage_from_instance, _VirtNUMATopologyExtractSpec()
+         )
