@@ -1278,6 +1278,13 @@ class HelperMethodsTestCase(test.NoDBTestCase):
             hw.VirtNUMATopologyCell(0, set([0, 1]), 256),
             hw.VirtNUMATopologyCell(1, set([2]), 256),
         ])
+        self.host_pin = hw.VirtHostCPUPinning(
+                cells=[hw.VirtHostCPUPinningCell(0, set([0, 1]))])
+        self.inst_pin = hw.VirtInstanceCPUPinning(
+                cells=[hw.VirtInstanceCPUPinningCell(
+                    set([0, 1]), id=0, pinning={0: 0, 1: 1},
+                    topology=hw.VirtCPUTopology(1, 1, 2))])
+
         self.context = context.RequestContext('fake-user',
                                               'fake-project')
 
@@ -1287,48 +1294,82 @@ class HelperMethodsTestCase(test.NoDBTestCase):
         self.assertEqual(1, host_usage.cells[1].cpu_usage)
         self.assertEqual(256, host_usage.cells[1].memory_usage)
 
+    def _check_pinning(self, host_usage):
+        self.assertEqual(set([0, 1]), host_usage.cells[0].pinned_cpus)
+
     def test_dicts_json(self):
-        host = {'numa_topology': self.hosttopo.to_json()}
-        instance = {'numa_topology': self.instancetopo.to_json()}
+        host = {'numa_topology': self.hosttopo.to_json(),
+                'cpu_pinning': self.host_pin.to_json()}
+        instance = {'numa_topology': self.instancetopo.to_json(),
+                    'cpu_pinning': self.inst_pin.to_json()}
 
         res = hw.get_host_numa_usage_from_instance(host, instance)
         self.assertIsInstance(res, six.string_types)
         self._check_usage(hw.VirtNUMAHostTopology.from_json(res))
 
+        res = hw.get_host_cpu_pinning_usage_from_instance(host, instance)
+        self.assertIsInstance(res, six.string_types)
+        self._check_pinning(hw.VirtHostCPUPinning.from_json(res))
+
     def test_dicts_instance_json(self):
-        host = {'numa_topology': self.hosttopo}
-        instance = {'numa_topology': self.instancetopo.to_json()}
+        host = {'numa_topology': self.hosttopo,
+                'cpu_pinning': self.host_pin}
+        instance = {'numa_topology': self.instancetopo.to_json(),
+                    'cpu_pinning': self.inst_pin.to_json()}
 
         res = hw.get_host_numa_usage_from_instance(host, instance)
         self.assertIsInstance(res, hw.VirtNUMAHostTopology)
         self._check_usage(res)
 
+        res = hw.get_host_cpu_pinning_usage_from_instance(host, instance)
+        self.assertIsInstance(res, hw.VirtHostCPUPinning)
+        self._check_pinning(res)
+
     def test_dicts_host_json(self):
-        host = {'numa_topology': self.hosttopo.to_json()}
-        instance = {'numa_topology': self.instancetopo}
+        host = {'numa_topology': self.hosttopo.to_json(),
+                'cpu_pinning': self.host_pin.to_json()}
+        instance = {'numa_topology': self.instancetopo,
+                    'cpu_pinning': self.inst_pin}
 
         res = hw.get_host_numa_usage_from_instance(host, instance)
         self.assertIsInstance(res, six.string_types)
         self._check_usage(hw.VirtNUMAHostTopology.from_json(res))
+
+        res = hw.get_host_cpu_pinning_usage_from_instance(host, instance)
+        self.assertIsInstance(res, six.string_types)
+        self._check_pinning(hw.VirtHostCPUPinning.from_json(res))
 
     def test_object_host_instance_json(self):
-        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json())
-        instance = {'numa_topology': self.instancetopo.to_json()}
+        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json(),
+                                   cpu_pinning=self.host_pin.to_json())
+        instance = {'numa_topology': self.instancetopo.to_json(),
+                    'cpu_pinning': self.inst_pin.to_json()}
 
         res = hw.get_host_numa_usage_from_instance(host, instance)
         self.assertIsInstance(res, six.string_types)
         self._check_usage(hw.VirtNUMAHostTopology.from_json(res))
+
+        res = hw.get_host_cpu_pinning_usage_from_instance(host, instance)
+        self.assertIsInstance(res, six.string_types)
+        self._check_pinning(hw.VirtHostCPUPinning.from_json(res))
 
     def test_object_host_instance(self):
-        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json())
-        instance = {'numa_topology': self.instancetopo}
+        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json(),
+                                   cpu_pinning=self.host_pin.to_json())
+        instance = {'numa_topology': self.instancetopo,
+                    'cpu_pinning': self.inst_pin}
 
         res = hw.get_host_numa_usage_from_instance(host, instance)
         self.assertIsInstance(res, six.string_types)
         self._check_usage(hw.VirtNUMAHostTopology.from_json(res))
 
+        res = hw.get_host_cpu_pinning_usage_from_instance(host, instance)
+        self.assertIsInstance(res, six.string_types)
+        self._check_pinning(hw.VirtHostCPUPinning.from_json(res))
+
     def test_instance_with_fetch(self):
-        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json())
+        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json(),
+                                   cpu_pinning=self.host_pin.to_json())
         fake_uuid = str(uuid.uuid4())
         instance = {'uuid': fake_uuid}
 
@@ -1341,8 +1382,18 @@ class HelperMethodsTestCase(test.NoDBTestCase):
             self.assertIsInstance(res, six.string_types)
             self.assertTrue(get_mock.called)
 
+        with mock.patch.object(objects.InstanceCPUPinning,
+                'get_by_instance_uuid',
+                return_value=objects.InstanceCPUPinning.obj_from_topology(
+                    self.inst_pin)
+                ) as get_mock:
+            res = hw.get_host_cpu_pinning_usage_from_instance(host, instance)
+            self.assertIsInstance(res, six.string_types)
+            self.assertTrue(get_mock.called)
+
     def test_object_instance_with_load(self):
-        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json())
+        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json(),
+                                   cpu_pinning=self.host_pin.to_json())
         fake_uuid = str(uuid.uuid4())
         instance = objects.Instance(context=self.context, uuid=fake_uuid)
 
@@ -1355,12 +1406,25 @@ class HelperMethodsTestCase(test.NoDBTestCase):
             self.assertIsInstance(res, six.string_types)
             self.assertTrue(get_mock.called)
 
+        with mock.patch.object(objects.InstanceCPUPinning,
+                'get_by_instance_uuid',
+                return_value=objects.InstanceCPUPinning.obj_from_topology(
+                    self.inst_pin)
+                ) as get_mock:
+            res = hw.get_host_cpu_pinning_usage_from_instance(host, instance)
+            self.assertIsInstance(res, six.string_types)
+            self.assertTrue(get_mock.called)
+
     def test_instance_serialized_by_build_request_spec(self):
-        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json())
+        host = objects.ComputeNode(numa_topology=self.hosttopo.to_json(),
+                                   cpu_pinning=self.host_pin.to_json())
         fake_uuid = str(uuid.uuid4())
         instance = objects.Instance(context=self.context, id=1, uuid=fake_uuid,
                 numa_topology=objects.InstanceNUMATopology.obj_from_topology(
-                    self.instancetopo))
+                    self.instancetopo),
+                cpu_pinning=objects.InstanceCPUPinning.obj_from_topology(
+                    self.inst_pin))
+
         # NOTE (ndipanov): This emulates scheduler.utils.build_request_spec
         # We can remove this test once we no longer use that method.
         instance_raw = jsonutils.to_primitive(
@@ -1369,26 +1433,43 @@ class HelperMethodsTestCase(test.NoDBTestCase):
         self.assertIsInstance(res, six.string_types)
         self._check_usage(hw.VirtNUMAHostTopology.from_json(res))
 
+        res = hw.get_host_cpu_pinning_usage_from_instance(host, instance_raw)
+        self.assertIsInstance(res, six.string_types)
+        self._check_pinning(hw.VirtHostCPUPinning.from_json(res))
+
     def test_attr_host(self):
         class Host(object):
             def __init__(obj):
                 obj.numa_topology = self.hosttopo.to_json()
+                obj.cpu_pinning = self.host_pin.to_json()
 
         host = Host()
-        instance = {'numa_topology': self.instancetopo.to_json()}
+        instance = {'numa_topology': self.instancetopo.to_json(),
+                    'cpu_pinning': self.inst_pin.to_json()}
 
         res = hw.get_host_numa_usage_from_instance(host, instance)
         self.assertIsInstance(res, six.string_types)
         self._check_usage(hw.VirtNUMAHostTopology.from_json(res))
 
+        res = hw.get_host_cpu_pinning_usage_from_instance(host, instance)
+        self.assertIsInstance(res, six.string_types)
+        self._check_pinning(hw.VirtHostCPUPinning.from_json(res))
+
     def test_never_serialize_result(self):
-        host = {'numa_topology': self.hosttopo.to_json()}
-        instance = {'numa_topology': self.instancetopo}
+        host = {'numa_topology': self.hosttopo.to_json(),
+                'cpu_pinning': self.host_pin.to_json()}
+        instance = {'numa_topology': self.instancetopo,
+                    'cpu_pinning': self.inst_pin}
 
         res = hw.get_host_numa_usage_from_instance(host, instance,
                                                   never_serialize_result=True)
         self.assertIsInstance(res, hw.VirtNUMAHostTopology)
         self._check_usage(res)
+
+        res = hw.get_host_cpu_pinning_usage_from_instance(
+                host, instance, never_serialize_result=True)
+        self.assertIsInstance(res, hw.VirtHostCPUPinning)
+        self._check_pinning(res)
 
 
 class _CPUPinningTestCaseBase(object):

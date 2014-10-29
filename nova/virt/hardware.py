@@ -1312,12 +1312,42 @@ class _VirtNUMATopologyExtractSpec(object):
     def instance_object_class(cls):
         return objects.InstanceNUMATopology
 
-    def _extract_from_request_spec_cells(self, dict_cells):
+    def _extract_instance_from_request_spec_cells(self, dict_cells):
         cells = [objects.InstanceNUMACell(id=cell['id'],
                                       cpuset=set(cell['cpuset']),
                                       memory=cell['memory'])
                  for cell in dict_cells]
         return objects.InstanceNUMATopology(cells=cells)
+
+
+# TODO(ndipanov): Remove when all code paths are using objects
+class _VirtCPUPinningExtractSpec(object):
+    def __init__(self):
+        self.instance_topo_class = VirtInstanceCPUPinning
+        self.host_topo_class = VirtHostCPUPinning
+        self.attr_name = 'cpu_pinning'
+
+    @property
+    def instance_object_class(cls):
+        return objects.InstanceCPUPinning
+
+    def _extract_instance_from_request_spec_cells(self, dict_cells):
+        obj_cells = []
+        for cell in dict_cells:
+            topology = cell.get('topology')
+            if topology:
+                topology = VirtCPUTopology(topology['sockets'],
+                                           topology['cores'],
+                                           topology['threads'])
+                topology = objects.InstanceCPUTopology.obj_from_topology(
+                        topology)
+            obj_cell = objects.InstanceCPUPinningCell(id=cell['id'],
+                                                      pinning=cell['pinning'],
+                                                      topology=topology)
+            obj_cells.append(obj_cell)
+
+        obj = objects.InstanceCPUPinning(cells=obj_cells)
+        return obj.topology_from_obj()
 
 
 # TODO(ndipanov): Remove when all code paths are using objects
@@ -1340,7 +1370,8 @@ def _virt_topology_from_instance(extract_spec, instance):
                     extract_spec.instance_object_class.get_by_instance_uuid(
                             context.get_admin_context(), instance['uuid'])
                     )
-            except exception.NumaTopologyNotFound:
+            except (exception.NumaTopologyNotFound,
+                    exception.InstanceCPUPinningNotFound):
                 instance_virt_topology = None
         else:
             instance_virt_topology = None
@@ -1366,7 +1397,7 @@ def _virt_topology_from_instance(extract_spec, instance):
             dict_cells = instance_virt_topology.get('cells')
             if dict_cells:
                 instance_virt_topology = (
-                        extract_spec._extract_from_request_spec_cells(
+                        extract_spec._extract_instance_from_request_spec_cells(
                             dict_cells))
 
     return instance_virt_topology
@@ -1375,6 +1406,11 @@ def _virt_topology_from_instance(extract_spec, instance):
 # TODO(ndipanov): Remove when all code paths are using objects
 instance_numa_topology_from_instance = functools.partial(
         _virt_topology_from_instance, _VirtNUMATopologyExtractSpec())
+
+
+# TODO(ndipanov): Remove when all code paths are using objects
+instance_cpu_pinning_from_instance = functools.partial(
+        _virt_topology_from_instance, _VirtCPUPinningExtractSpec())
 
 
 # TODO(ndipanov): Remove when all code paths are using objects
@@ -1407,6 +1443,11 @@ def _host_topology_and_format_from_host(extract_spec, host):
 # TODO(ndipanov): Remove when all code paths are using objects
 host_numa_topology_and_format_from_host = functools.partial(
         _host_topology_and_format_from_host, _VirtNUMATopologyExtractSpec())
+
+
+# TODO(ndipanov): Remove when all code paths are using objects
+host_cpu_pinning_and_format_from_host = functools.partial(
+        _host_topology_and_format_from_host, _VirtCPUPinningExtractSpec())
 
 
 # TODO(ndipanov): Remove when all code paths are using objects
@@ -1461,3 +1502,8 @@ def _get_host_topology_usage_from_instance(extract_spec, host, instance,
 get_host_numa_usage_from_instance = functools.partial(
          _get_host_topology_usage_from_instance, _VirtNUMATopologyExtractSpec()
          )
+
+
+# TODO(ndipanov): Remove when all code paths are using objects
+get_host_cpu_pinning_usage_from_instance = functools.partial(
+         _get_host_topology_usage_from_instance, _VirtCPUPinningExtractSpec())
