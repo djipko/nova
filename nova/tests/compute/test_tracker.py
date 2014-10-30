@@ -91,6 +91,7 @@ _INSTANCE_FIXTURES = [
         root_gb=1,
         ephemeral_gb=0,
         numa_topology=None,
+        cpu_pinning=None,
         instance_type_id=1,
         vm_state=vm_states.ACTIVE,
         power_state=power_state.RUNNING,
@@ -106,6 +107,7 @@ _INSTANCE_FIXTURES = [
         root_gb=5,
         ephemeral_gb=0,
         numa_topology=None,
+        cpu_pinning=None,
         instance_type_id=2,
         vm_state=vm_states.DELETED,
         power_state=power_state.SHUTDOWN,
@@ -164,6 +166,7 @@ _MIGRATION_INSTANCE_FIXTURES = {
         root_gb=1,
         ephemeral_gb=0,
         numa_topology=None,
+        cpu_pinning=None,
         instance_type_id=1,
         vm_state=vm_states.ACTIVE,
         power_state=power_state.RUNNING,
@@ -181,6 +184,7 @@ _MIGRATION_INSTANCE_FIXTURES = {
         root_gb=5,
         ephemeral_gb=0,
         numa_topology=None,
+        cpu_pinning=None,
         instance_type_id=2,
         vm_state=vm_states.ACTIVE,
         power_state=power_state.RUNNING,
@@ -198,6 +202,7 @@ _MIGRATION_INSTANCE_FIXTURES = {
         root_gb=5,
         ephemeral_gb=0,
         numa_topology=None,
+        cpu_pinning=None,
         instance_type_id=2,
         vm_state=vm_states.ACTIVE,
         power_state=power_state.RUNNING,
@@ -288,7 +293,8 @@ class TestUpdateAvailableResources(BaseTestCase):
                                          'fake-node',
                                          expected_attrs=[
                                              'system_metadata',
-                                             'numa_topology'])
+                                             'numa_topology',
+                                             'cpu_pinning'])
         migr_mock.assert_called_once_with(mock.sentinel.ctx, 'fake-host',
                                           'fake-node')
 

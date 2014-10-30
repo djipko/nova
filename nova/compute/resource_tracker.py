@@ -249,8 +249,11 @@ class ResourceTracker(object):
                 numa_topology = (
                         hardware.VirtNUMAInstanceTopology.get_constraints(
                             itype, image_meta))
+                cpu_pinning = hardware.VirtInstanceCPUPinning.get_constraints(
+                        itype, image_meta, numa_topology=numa_topology)
                 usage = self._get_usage_dict(
-                        itype, numa_topology=numa_topology)
+                        itype, numa_topology=numa_topology,
+                        cpu_pinning=cpu_pinning)
                 if self.pci_tracker:
                     self.pci_tracker.update_pci_for_migration(context,
                                                               instance,
@@ -343,7 +346,8 @@ class ResourceTracker(object):
         instances = objects.InstanceList.get_by_host_and_node(
             context, self.host, self.nodename,
             expected_attrs=['system_metadata',
-                            'numa_topology'])
+                            'numa_topology',
+                            'cpu_pinning'])
 
         # Now calculate usage based on instance utilization:
         self._update_usage_from_instances(context, resources, instances)
@@ -545,8 +549,14 @@ class ResourceTracker(object):
         resources['running_vms'] = self.stats.num_instances
         self.ext_resources_handler.update_from_instance(usage, sign)
 
-        # Calculate the numa usage
         free = sign == -1
+        # Calculate the CPU pinning
+        updated_pinning = (
+                hardware.get_host_cpu_pinning_usage_from_instance(
+                    resources, usage, free))
+        resources['cpu_pinning'] = updated_pinning
+
+        # Calculate the numa usage
         updated_numa_topology = hardware.get_host_numa_usage_from_instance(
                 resources, usage, free)
         resources['numa_topology'] = updated_numa_topology
@@ -599,8 +609,11 @@ class ResourceTracker(object):
             numa_topology = (
                     hardware.VirtNUMAInstanceTopology.get_constraints(
                         itype, image_meta))
+            cpu_pinning = hardware.VirtInstanceCPUPinning.get_constraints(
+                    itype, image_meta, numa_topology=numa_topology)
             usage = self._get_usage_dict(
-                        itype, numa_topology=numa_topology)
+                        itype, numa_topology=numa_topology,
+                        cpu_pinning=cpu_pinning)
             if self.pci_tracker:
                 self.pci_tracker.update_pci_for_migration(context, instance)
             self._update_usage(context, resources, usage)
@@ -795,8 +808,8 @@ class ResourceTracker(object):
 
         :param object_or_dict: instance or flavor as an object or just a dict
         :param updates: key-value pairs to update the passed object.
-                        Currently only considers 'numa_topology', all other
-                        keys are ignored.
+                        Currently only considers 'numa_topology' and
+                        'cpu_pinning', all other keys are ignored.
 
         :returns: a dict with all the information from object_or_dict updated
                   with updates
@@ -807,7 +820,7 @@ class ResourceTracker(object):
         else:
             usage.update(object_or_dict)
 
-        for key in ('numa_topology',):
+        for key in ('numa_topology', 'cpu_pinning'):
             if key in updates:
                 usage[key] = updates[key]
         return usage

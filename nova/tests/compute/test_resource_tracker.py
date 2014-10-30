@@ -52,6 +52,9 @@ FAKE_VIRT_NUMA_TOPOLOGY_OVERHEAD = hardware.VirtNUMALimitTopology(
                     0, set([1, 2]), 3072, 4, 10240),
                hardware.VirtNUMATopologyCellLimit(
                     1, set([3, 4]), 3072, 4, 10240)])
+FAKE_CPU_PINNING = hardware.VirtHostCPUPinning(
+                cells=[hardware.VirtHostCPUPinningCell(0, set([1, 2])),
+                       hardware.VirtHostCPUPinningCell(1, set([3, 4]))])
 ROOT_GB = 5
 EPHEMERAL_GB = 1
 FAKE_VIRT_LOCAL_GB = ROOT_GB + EPHEMERAL_GB
@@ -79,12 +82,14 @@ class UnsupportedVirtDriver(driver.ComputeDriver):
 class FakeVirtDriver(driver.ComputeDriver):
 
     def __init__(self, pci_support=False, stats=None,
-                 numa_topology=FAKE_VIRT_NUMA_TOPOLOGY):
+                 numa_topology=FAKE_VIRT_NUMA_TOPOLOGY,
+                 cpu_pinning=FAKE_CPU_PINNING):
         super(FakeVirtDriver, self).__init__(None)
         self.memory_mb = FAKE_VIRT_MEMORY_MB
         self.local_gb = FAKE_VIRT_LOCAL_GB
         self.vcpus = FAKE_VIRT_VCPUS
         self.numa_topology = numa_topology
+        self.cpu_pinning = cpu_pinning
 
         self.memory_mb_used = 0
         self.local_gb_used = 0
@@ -122,7 +127,8 @@ class FakeVirtDriver(driver.ComputeDriver):
             'cpu_info': '',
             'numa_topology': (
                 self.numa_topology.to_json() if self.numa_topology else None),
-            'cpu_pinning': None,
+            'cpu_pinning': (
+                self.cpu_pinning.to_json() if self.cpu_pinning else None)
         }
         if self.pci_support:
             d['pci_passthrough_devices'] = jsonutils.dumps(self.pci_devices)
@@ -573,6 +579,15 @@ class BaseTrackerTestCase(BaseTestCase):
                                          "%(expected)s, but got: %(got)s" %
                                          {'expected': expected, 'got': got})
 
+    def assertEqualCPUPinning(self, expected, got):
+        if len(expected) != len(got):
+            raise AssertionError("CPU Pinning does not match expected")
+        for exp_cell, got_cell in zip(expected.cells, got.cells):
+            self.assertEqual(exp_cell.siblings, got_cell.siblings,
+                             "Cell siblings did not match in one of the cells")
+            self.assertEqual(exp_cell.pinning, got_cell.pinning,
+                             "Cell pinning did not match in one of the cells")
+
     def _assert(self, value, field, tracker=None):
 
         if tracker is None:
@@ -586,6 +601,9 @@ class BaseTrackerTestCase(BaseTestCase):
         if field == 'numa_topology':
             self.assertEqualNUMAHostTopology(
                     value, hardware.VirtNUMAHostTopology.from_json(x))
+        elif field == 'cpu_pinning':
+            self.assertEqualCPUPinning(
+                    value, hardware.VirtHostCPUPinning.from_json(x))
         else:
             self.assertEqual(value, x)
 
@@ -612,6 +630,7 @@ class TrackerTestCase(BaseTrackerTestCase):
         self._assert(FAKE_VIRT_LOCAL_GB, 'local_gb')
         self._assert(FAKE_VIRT_VCPUS, 'vcpus')
         self._assert(FAKE_VIRT_NUMA_TOPOLOGY, 'numa_topology')
+        self._assert(FAKE_CPU_PINNING, 'cpu_pinning')
         self._assert(0, 'memory_mb_used')
         self._assert(0, 'local_gb_used')
         self._assert(0, 'vcpus_used')
@@ -919,6 +938,31 @@ class InstanceClaimTestCase(BaseTrackerTestCase):
                 claim_topology,
                 hardware.VirtNUMAHostTopology.from_json(
                     self.compute['numa_topology']))
+
+    @mock.patch('nova.objects.InstancePCIRequests.get_by_instance_uuid',
+                return_value=objects.InstancePCIRequests(requests=[]))
+    def test_claim_with_cpu_pinning(self, mock_get):
+        instance_pin = hardware.VirtInstanceCPUPinning(
+                cells=[hardware.VirtInstanceCPUPinningCell(
+                               set([0, 1]), 0, pinning={0: 1, 1: 2}),
+                       hardware.VirtInstanceCPUPinningCell(
+                               set([2, 3]), 1, pinning={2: 3, 3: 4})])
+        flavor = self._fake_flavor_create()
+        instance = self._fake_instance(
+                flavor=flavor, cpu_pinning=instance_pin)
+
+        expected_pinning = hardware.VirtHostCPUPinning(
+                cells=[hardware.VirtHostCPUPinningCell(
+                            0, set([1, 2]), pinning=set([1, 2])),
+                       hardware.VirtHostCPUPinningCell(
+                            1, set([3, 4]), pinning=set([3, 4]))])
+
+        with self.tracker.instance_claim(self.context, instance, self.limits):
+            pass
+
+        self.assertEqualCPUPinning(expected_pinning,
+                                   hardware.VirtHostCPUPinning.from_json(
+                                       self.compute['cpu_pinning']))
 
     @mock.patch('nova.objects.InstancePCIRequests.get_by_instance_uuid',
                 return_value=objects.InstancePCIRequests(requests=[]))
