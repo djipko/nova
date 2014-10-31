@@ -258,7 +258,7 @@ COMPUTE_NODES_IO_OPS = [
              free_disk_gb=512, local_gb_used=0, updated_at=None,
              service=dict(host='host1', disabled=False),
              hypervisor_hostname='node1', host_ip='127.0.0.1',
-             hypervisor_version=0, numa_topology=None,
+             hypervisor_version=0, numa_topology=None, cpu_pinning=None,
              stats=jsonutils.dumps({'io_workload': '1'})),
         # host2: num_io_ops=2
         dict(id=2, local_gb=2048, memory_mb=2048, vcpus=2,
@@ -266,7 +266,7 @@ COMPUTE_NODES_IO_OPS = [
              free_disk_gb=1024, local_gb_used=0, updated_at=None,
              service=dict(host='host2', disabled=True),
              hypervisor_hostname='node2', host_ip='127.0.0.1',
-             hypervisor_version=0, numa_topology=None,
+             hypervisor_version=0, numa_topology=None, cpu_pinning=None,
              stats=jsonutils.dumps({'io_workload': '2'})),
         # host3: num_io_ops=0, so host3 should win in the case of default
         # io_ops_weight_multiplier configure.
@@ -275,7 +275,7 @@ COMPUTE_NODES_IO_OPS = [
              free_disk_gb=3072, local_gb_used=0, updated_at=None,
              service=dict(host='host3', disabled=False),
              hypervisor_hostname='node3', host_ip='127.0.0.1',
-             hypervisor_version=0, numa_topology=None,
+             hypervisor_version=0, numa_topology=None, cpu_pinning=None,
              stats=jsonutils.dumps({'io_workload': '0'})),
         # host4: num_io_ops=4, so host4 should win in the case of positive
         # io_ops_weight_multiplier configure.
@@ -284,7 +284,7 @@ COMPUTE_NODES_IO_OPS = [
              free_disk_gb=8888, local_gb_used=0, updated_at=None,
              service=dict(host='host4', disabled=False),
              hypervisor_hostname='node4', host_ip='127.0.0.1',
-             hypervisor_version=0, numa_topology=None,
+             hypervisor_version=0, numa_topology=None, cpu_pinning=None,
              stats=jsonutils.dumps({'io_workload': '4'})),
         # Broken entry
         dict(id=5, local_gb=1024, memory_mb=1024, vcpus=1, service=None),

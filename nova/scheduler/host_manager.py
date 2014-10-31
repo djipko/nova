@@ -123,6 +123,7 @@ class HostState(object):
         self.vcpus_total = 0
         self.vcpus_used = 0
         self.numa_topology = None
+        self.cpu_pinning = None
 
         # Additional host information from the compute node stats:
         self.num_instances = 0
@@ -199,6 +200,7 @@ class HostState(object):
         self.vcpus_used = compute['vcpus_used']
         self.updated = compute['updated_at']
         self.numa_topology = compute['numa_topology']
+        self.cpu_pinning = compute['cpu_pinning']
         if 'pci_stats' in compute:
             self.pci_stats = pci_stats.PciDeviceStats(compute['pci_stats'])
         else:
@@ -244,6 +246,12 @@ class HostState(object):
         pci_requests = instance.get('pci_requests')
         if pci_requests and pci_requests.requests and self.pci_stats:
             self.pci_stats.apply_requests(pci_requests.requests)
+
+        # Calculate the cpu pinning usage
+        updated_cpu_pinning = (
+                hardware.get_host_cpu_pinning_usage_from_instance(
+                    self, instance))
+        self.cpu_pinning = updated_cpu_pinning
 
         # Calculate the numa usage
         updated_numa_topology = hardware.get_host_numa_usage_from_instance(

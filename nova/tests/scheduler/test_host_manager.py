@@ -307,6 +307,11 @@ class HostManagerTestCase(test.NoDBTestCase):
         # 511GB
         self.assertEqual(host_states_map[('host1', 'node1')].free_disk_mb,
                          524288)
+        self.assertEqual(
+                hardware.VirtHostCPUPinning.from_json(
+                    host_states_map[('host1', 'node1')].cpu_pinning
+                    )._to_dict(),
+                fakes.CPU_PINNING._to_dict())
         self.assertEqual(host_states_map[('host2', 'node2')].free_ram_mb,
                          1024)
         # 1023GB
@@ -415,7 +420,8 @@ class HostStateTestCase(test.NoDBTestCase):
                        hypervisor_type='htype',
                        hypervisor_hostname='hostname', cpu_info='cpu_info',
                        supported_instances='{}',
-                       hypervisor_version=hyper_ver_int, numa_topology=None)
+                       hypervisor_version=hyper_ver_int, numa_topology=None,
+                       cpu_pinning=None)
 
         host = host_manager.HostState("fakehost", "fakenode")
         host.update_from_compute_node(compute)
@@ -450,7 +456,8 @@ class HostStateTestCase(test.NoDBTestCase):
         compute = dict(stats=stats, memory_mb=0, free_disk_gb=0, local_gb=0,
                        local_gb_used=0, free_ram_mb=0, vcpus=0, vcpus_used=0,
                        updated_at=None, host_ip='127.0.0.1',
-                       hypervisor_version=hyper_ver_int, numa_topology=None)
+                       hypervisor_version=hyper_ver_int, numa_topology=None,
+                       cpu_pinning=None)
 
         host = host_manager.HostState("fakehost", "fakenode")
         host.update_from_compute_node(compute)
@@ -476,7 +483,8 @@ class HostStateTestCase(test.NoDBTestCase):
         compute = dict(stats=stats, memory_mb=0, free_disk_gb=0, local_gb=0,
                        local_gb_used=0, free_ram_mb=0, vcpus=0, vcpus_used=0,
                        updated_at=None, host_ip='127.0.0.1',
-                       hypervisor_version=hyper_ver_int, numa_topology=None)
+                       hypervisor_version=hyper_ver_int, numa_topology=None,
+                       cpu_pinning=None)
 
         host = host_manager.HostState("fakehost", "fakenode")
         host.update_from_compute_node(compute)
@@ -489,8 +497,11 @@ class HostStateTestCase(test.NoDBTestCase):
         self.assertEqual(hyper_ver_int, host.hypervisor_version)
 
     @mock.patch('nova.virt.hardware.get_host_numa_usage_from_instance')
-    def test_stat_consumption_from_instance(self, numa_usage_mock):
+    @mock.patch('nova.virt.hardware.get_host_cpu_pinning_usage_from_instance')
+    def test_stat_consumption_from_instance(
+            self, cpu_pin_usage_mock, numa_usage_mock):
         numa_usage_mock.return_value = 'fake-consumed-once'
+        cpu_pin_usage_mock.return_value = 'fake-consumed-once'
         host = host_manager.HostState("fakehost", "fakenode")
 
         instance = dict(root_gb=0, ephemeral_gb=0, memory_mb=0, vcpus=0,
@@ -499,9 +510,12 @@ class HostStateTestCase(test.NoDBTestCase):
                         uuid='fake-uuid')
         host.consume_from_instance(instance)
         numa_usage_mock.assert_called_once_with(host, instance)
+        cpu_pin_usage_mock.assert_called_once_with(host, instance)
         self.assertEqual('fake-consumed-once', host.numa_topology)
+        self.assertEqual('fake-consumed-once', host.cpu_pinning)
 
         numa_usage_mock.return_value = 'fake-consumed-twice'
+        cpu_pin_usage_mock.return_value = 'fake-consumed-twice'
         instance = dict(root_gb=0, ephemeral_gb=0, memory_mb=0, vcpus=0,
                         project_id='12345', vm_state=vm_states.PAUSED,
                         task_state=None, os_type='Linux',
@@ -511,8 +525,11 @@ class HostStateTestCase(test.NoDBTestCase):
         self.assertEqual(2, host.num_instances)
         self.assertEqual(1, host.num_io_ops)
         self.assertEqual(2, numa_usage_mock.call_count)
+        self.assertEqual(2, cpu_pin_usage_mock.call_count)
         self.assertEqual(((host, instance),), numa_usage_mock.call_args)
+        self.assertEqual(((host, instance),), cpu_pin_usage_mock.call_args)
         self.assertEqual('fake-consumed-twice', host.numa_topology)
+        self.assertEqual('fake-consumed-twice', host.cpu_pinning)
 
     def test_resources_consumption_from_compute_node(self):
         metrics = [
@@ -531,7 +548,8 @@ class HostStateTestCase(test.NoDBTestCase):
                        local_gb_used=0, free_ram_mb=0, vcpus=0, vcpus_used=0,
                        updated_at=None, host_ip='127.0.0.1',
                        hypervisor_version=hyper_ver_int,
-                       numa_topology=fakes.NUMA_TOPOLOGY.to_json())
+                       numa_topology=fakes.NUMA_TOPOLOGY.to_json(),
+                       cpu_pinning=fakes.CPU_PINNING.to_json())
         host = host_manager.HostState("fakehost", "fakenode")
         host.update_from_compute_node(compute)
 
@@ -542,3 +560,4 @@ class HostStateTestCase(test.NoDBTestCase):
         self.assertEqual('string2', host.metrics['res2'].value)
         self.assertEqual('source2', host.metrics['res2'].source)
         self.assertIsInstance(host.numa_topology, six.string_types)
+        self.assertIsInstance(host.cpu_pinning, six.string_types)

@@ -151,7 +151,8 @@ class FilterSchedulerTestCase(test_scheduler.SchedulerTestCase):
 
     @mock.patch('nova.db.instance_extra_get_by_instance_uuid',
                 return_value={'numa_topology': None,
-                              'pci_requests': None})
+                              'pci_requests': None,
+                              'cpu_pinning': None})
     def test_schedule_happy_day(self, mock_get_extra):
         """Make sure there's nothing glaringly wrong with _schedule()
         by doing a happy day pass through.
@@ -451,7 +452,8 @@ class FilterSchedulerTestCase(test_scheduler.SchedulerTestCase):
 
     @mock.patch('nova.db.instance_extra_get_by_instance_uuid',
                 return_value={'numa_topology': None,
-                              'pci_requests': None})
+                              'pci_requests': None,
+                              'cpu_pinning': None})
     def test_schedule_host_pool(self, mock_get_extra):
         """Make sure the scheduler_host_subset_size property works properly."""
 
@@ -484,7 +486,8 @@ class FilterSchedulerTestCase(test_scheduler.SchedulerTestCase):
 
     @mock.patch('nova.db.instance_extra_get_by_instance_uuid',
                 return_value={'numa_topology': None,
-                              'pci_requests': None})
+                              'pci_requests': None,
+                              'cpu_pinning': None})
     def test_schedule_large_host_pool(self, mock_get_extra):
         """Hosts should still be chosen if pool size
         is larger than number of filtered hosts.
@@ -518,7 +521,8 @@ class FilterSchedulerTestCase(test_scheduler.SchedulerTestCase):
 
     @mock.patch('nova.db.instance_extra_get_by_instance_uuid',
                 return_value={'numa_topology': None,
-                              'pci_requests': None})
+                              'pci_requests': None,
+                              'cpu_pinning': None})
     def test_schedule_chooses_best_host(self, mock_get_extra):
         """If scheduler_host_subset_size is 1, the largest host with greatest
         weight should be returned.
@@ -568,7 +572,8 @@ class FilterSchedulerTestCase(test_scheduler.SchedulerTestCase):
 
     @mock.patch('nova.db.instance_extra_get_by_instance_uuid',
                 return_value={'numa_topology': None,
-                              'pci_requests': None})
+                              'pci_requests': None,
+                              'cpu_pinning': None})
     def test_select_destinations(self, mock_get_extra):
         """select_destinations is basically a wrapper around _schedule().
 
