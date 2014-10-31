@@ -36,6 +36,7 @@ class NopClaim(object):
 
     def __init__(self, migration=None):
         self.migration = migration
+        self.claimed_pinning = None
 
     @property
     def disk_gb(self):
@@ -84,6 +85,7 @@ class Claim(NopClaim):
             self.instance = jsonutils.to_primitive(instance)
         self._numa_topology_loaded = False
         self._cpu_pinning_loaded = False
+        self.claimed_pinning = None
         self.tracker = tracker
 
         if not overhead:
@@ -236,8 +238,16 @@ class Claim(NopClaim):
         instances_pinning = [self.cpu_pinning] if self.cpu_pinning else []
         if host_pinning:
             host_pinning = hardware.VirtHostCPUPinning.from_json(host_pinning)
-            return hardware.VirtHostCPUPinning.claim_test(
+            claim_response = hardware.VirtHostCPUPinning.claim_test(
                     host_pinning, instances_pinning)
+            if claim_response is None and self.cpu_pinning:
+                # NOTE (ndipanov): We save the resulting topology so that the
+                # instance can be updated by the calling code
+                self.claimed_pinning = (
+                    objects.InstanceCPUPinning.obj_from_topology(
+                        hardware.VirtHostCPUPinning.get_pinning_for_instance(
+                            host_pinning, self.cpu_pinning)))
+            return claim_response
         elif instances_pinning:
             return _("This host does not allow pinning")
 

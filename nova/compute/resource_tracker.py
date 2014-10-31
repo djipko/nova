@@ -130,6 +130,7 @@ class ResourceTracker(object):
                              overhead=overhead, limits=limits)
 
         self._set_instance_host_and_node(context, instance_ref)
+        instance_ref['cpu_pinning'] = claim.claimed_pinning
 
         # Mark resources in-use and update stats
         self._update_usage_from_instance(context, self.compute_node,

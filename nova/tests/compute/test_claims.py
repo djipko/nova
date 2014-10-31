@@ -280,7 +280,9 @@ class ClaimTestCase(test.NoDBTestCase):
         inst_pin = hardware.VirtInstanceCPUPinning(
                 cells=[hardware.VirtInstanceCPUPinningCell(set([0, 1])),
                        hardware.VirtInstanceCPUPinningCell(set([2, 3]))])
-        self._claim(cpu_pinning=inst_pin)
+        got_claim = self._claim(cpu_pinning=inst_pin)
+        self.assertIsInstance(got_claim.claimed_pinning,
+                              objects.InstanceCPUPinning)
 
     def test_cpu_pinning_fails(self, mock_get):
         inst_pin = hardware.VirtInstanceCPUPinning(
