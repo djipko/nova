@@ -7288,6 +7288,27 @@ class ComputeAPITestCase(BaseTestCase):
                             instances[0].numa_topology
                             .topology_from_obj()._to_dict()))
 
+    @mock.patch('nova.virt.hardware.VirtInstanceCPUPinning.get_constraints')
+    def test_create_with_cpu_pinning(self, pin_constraint_mock):
+        inst_type = flavors.get_default_flavor()
+        # This is what the stubbed out method will return
+        fake_image_props = {'kernel_id': 'fake_kernel_id',
+                            'ramdisk_id': 'fake_ramdisk_id',
+                            'something_else': 'meow'}
+
+        cpu_pinning = hardware.VirtInstanceCPUPinning(
+                cells=[hardware.VirtInstanceCPUPinningCell(set([0, 1])),
+                       hardware.VirtInstanceCPUPinningCell(set([2, 3]))])
+        pin_constraint_mock.return_value = cpu_pinning
+
+        instances, resv_id = self.compute_api.create(self.context, inst_type,
+                                                     self.fake_image['id'])
+        pin_constraint_mock.assert_called_once_with(
+                mock.ANY, fake_image_props, numa_topology=None)
+        self.assertEqual(
+                cpu_pinning._to_dict(),
+                instances[0].cpu_pinning.topology_from_obj()._to_dict())
+
     def test_create_instance_defaults_display_name(self):
         # Verify that an instance cannot be created without a display_name.
         cases = [dict(), dict(display_name=None)]

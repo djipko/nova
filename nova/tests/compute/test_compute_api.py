@@ -91,6 +91,7 @@ class _ComputeAPIUnitTestMixIn(object):
                   'deleted': 0,
                   'disabled': False,
                   'is_public': True,
+                  'extra_specs': {}
                  }
         if params:
             flavor.update(params)

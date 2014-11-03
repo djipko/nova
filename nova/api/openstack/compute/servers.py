@@ -1007,6 +1007,11 @@ class Controller(wsgi.Controller):
                 exception.ImageNUMATopologyCPUsUnassigned,
                 exception.ImageNUMATopologyMemoryOutOfRange) as error:
             raise exc.HTTPBadRequest(explanation=error.format_message())
+        except (exception.ImageCPUPinningForbidden,
+                exception.ImageVCPULimitsRangeExceeded,
+                exception.ImageVCPUTopologyRangeExceeded,
+                exception.ImageVCPULimitsRangeImpossible) as error:
+            raise exc.HTTPBadRequest(explanation=error.format_message())
         except (exception.PortInUse,
                 exception.InstanceExists,
                 exception.NoUniqueMatch) as error:

@@ -2366,6 +2366,27 @@ class ServersControllerCreateTest(test.TestCase):
         self.assertRaises(webob.exc.HTTPBadRequest,
                           self.controller.create, self.req, self.body)
 
+    @mock.patch('nova.virt.hardware.VirtCPUTopology.get_best_config')
+    def test_create_instance_cpu_topology_wrong(self, cpu_config_mock):
+        cpu_config_mock.side_effect = (
+                exception.ImageVCPUTopologyRangeExceeded(
+                    sockets=2, cores=2, threads=2,
+                    maxsockets=1, maxcores=1, maxthreads=1))
+        image_href = 'http://localhost/v2/images/%s' % self.image_uuid
+        self.body['server']['imageRef'] = image_href
+        self.req.body = jsonutils.dumps(self.body)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller.create, self.req, self.body)
+
+    @mock.patch('nova.virt.hardware.VirtInstanceCPUPinning.get_constraints')
+    def test_create_instance_cpu_pinning_wrong(self, pin_constraint_mock):
+        pin_constraint_mock.side_effect = exception.ImageCPUPinningForbidden
+        image_href = 'http://localhost/v2/images/%s' % self.image_uuid
+        self.body['server']['imageRef'] = image_href
+        self.req.body = jsonutils.dumps(self.body)
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          self.controller.create, self.req, self.body)
+
     def test_create_instance_too_much_metadata(self):
         self.flags(quota_metadata_items=1)
         self.body['server']['metadata']['vote'] = 'fiddletown'

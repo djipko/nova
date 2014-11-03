@@ -784,11 +784,21 @@ class API(base.Base):
                 block_device.properties_root_device_name(
                     boot_meta.get('properties', {})))
 
+        boot_meta_props = boot_meta.get('properties', {})
         numa_topology = hardware.VirtNUMAInstanceTopology.get_constraints(
-                instance_type, boot_meta.get('properties', {}))
+                instance_type, boot_meta_props)
+
+        instance_type_obj = objects.Flavor(context, **instance_type)
+        cpu_pinning = hardware.VirtInstanceCPUPinning.get_constraints(
+                instance_type_obj, boot_meta_props,
+                numa_topology=numa_topology)
+
         if numa_topology is not None:
             numa_topology = objects.InstanceNUMATopology.obj_from_topology(
                     numa_topology)
+        if cpu_pinning is not None:
+            cpu_pinning = objects.InstanceCPUPinning.obj_from_topology(
+                    cpu_pinning)
 
         system_metadata = flavors.save_flavor_info(
             dict(), instance_type)
@@ -833,6 +843,7 @@ class API(base.Base):
             'progress': 0,
             'pci_request_info': pci_request_info,
             'numa_topology': numa_topology,
+            'cpu_pinning': cpu_pinning,
             'system_metadata': system_metadata}
 
         options_from_image = self._inherit_properties_from_image(
