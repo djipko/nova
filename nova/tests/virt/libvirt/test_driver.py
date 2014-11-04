@@ -546,6 +546,7 @@ class LibvirtConnTestCase(test.NoDBTestCase):
             'system_metadata': sys_meta,
             'pci_devices': objects.PciDeviceList(),
             'numa_topology': None,
+            'cpu_pinning': None,
             'config_drive': None,
             'vm_mode': None,
             'kernel_id': None,
@@ -1426,6 +1427,72 @@ class LibvirtConnTestCase(test.NoDBTestCase):
                 self.assertEqual(instance_cell.cpuset, numa_cfg_cell.cpus)
                 self.assertEqual(instance_cell.memory * units.Ki,
                                  numa_cfg_cell.memory)
+
+    @mock.patch.object(objects.Flavor, 'get_by_id')
+    @mock.patch.object(hardware.VirtCPUTopology, 'get_best_config')
+    def test_get_guest_config_cpu_pinning(self, mock_get_topo, mock_flavor):
+        cpu_pinning = objects.InstanceCPUPinning.obj_from_topology(
+                hardware.VirtInstanceCPUPinning(
+                        cells=[hardware.VirtInstanceCPUPinningCell(
+                                   set([0, 1]), id=0, pinning={0: 4, 1: 1})]))
+        instance_ref = objects.Instance(**self.test_instance)
+        instance_ref.cpu_pinning = cpu_pinning
+        flavor = objects.Flavor(memory_mb=2048, vcpus=2, root_gb=496,
+                                ephemeral_gb=8128, swap=33550336, name='fake',
+                                extra_specs={})
+        mock_flavor.return_value = flavor
+
+        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), True)
+        disk_info = blockinfo.get_disk_info(CONF.libvirt.virt_type,
+                                            instance_ref)
+
+        with contextlib.nested(
+                mock.patch.object(
+                    objects.Flavor, "get_by_id", return_value=flavor),
+                mock.patch.object(conn, '_has_min_version', return_value=True),
+                ):
+            cfg = conn._get_guest_config(instance_ref, [], {}, disk_info)
+            self.assertEqual(0, cfg.cputune.vcpupin[0].id)
+            self.assertEqual(set([4]), cfg.cputune.vcpupin[0].cpuset)
+            self.assertEqual(1, cfg.cputune.vcpupin[1].id)
+            self.assertEqual(set([1]), cfg.cputune.vcpupin[1].cpuset)
+            self.assertTrue(mock_get_topo.called)
+
+    @mock.patch.object(objects.Flavor, 'get_by_id')
+    @mock.patch.object(hardware.VirtCPUTopology, 'get_best_config')
+    def test_get_guest_config_cpu_pinning_w_topology(self, mock_get_topo,
+                                                     mock_flavor):
+        cpu_pinning = objects.InstanceCPUPinning.obj_from_topology(
+                hardware.VirtInstanceCPUPinning(
+                        cells=[hardware.VirtInstanceCPUPinningCell(
+                                   set([0, 1]), id=0, pinning={0: 4, 1: 1},
+                                   topology=hardware.VirtCPUTopology(1, 1, 2)
+                                   )]))
+        instance_ref = objects.Instance(**self.test_instance)
+        instance_ref.cpu_pinning = cpu_pinning
+        flavor = objects.Flavor(memory_mb=2048, vcpus=2, root_gb=496,
+                                ephemeral_gb=8128, swap=33550336, name='fake',
+                                extra_specs={})
+        mock_flavor.return_value = flavor
+
+        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), True)
+        disk_info = blockinfo.get_disk_info(CONF.libvirt.virt_type,
+                                            instance_ref)
+
+        with contextlib.nested(
+                mock.patch.object(
+                    objects.Flavor, "get_by_id", return_value=flavor),
+                mock.patch.object(conn, '_has_min_version', return_value=True),
+                ):
+            cfg = conn._get_guest_config(instance_ref, [], {}, disk_info)
+            self.assertEqual(0, cfg.cputune.vcpupin[0].id)
+            self.assertEqual(set([4]), cfg.cputune.vcpupin[0].cpuset)
+            self.assertEqual(1, cfg.cputune.vcpupin[1].id)
+            self.assertEqual(set([1]), cfg.cputune.vcpupin[1].cpuset)
+            self.assertEqual(1, cfg.cpu.sockets)
+            self.assertEqual(1, cfg.cpu.cores)
+            self.assertEqual(2, cfg.cpu.threads)
+            self.assertFalse(mock_get_topo.called)
 
     @mock.patch.object(objects.Flavor, 'get_by_id')
     def test_get_guest_config_clock(self, mock_flavor):

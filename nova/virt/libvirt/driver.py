@@ -3385,18 +3385,20 @@ class LibvirtDriver(driver.ComputeDriver):
 
         return cpu
 
-    def _get_guest_cpu_config(self, flavor, image, guest_cpu_numa):
+    def _get_guest_cpu_config(self, flavor, image,
+                              guest_cpu_numa, cpu_topology):
         cpu = self._get_guest_cpu_model_config()
 
         if cpu is None:
             return None
 
-        topology = hardware.VirtCPUTopology.get_best_config(flavor,
-                                                            image)
+        if not cpu_topology:
+            cpu_topology = hardware.VirtCPUTopology.get_best_config(flavor,
+                                                                    image)
 
-        cpu.sockets = topology.sockets
-        cpu.cores = topology.cores
-        cpu.threads = topology.threads
+        cpu.sockets = cpu_topology.sockets
+        cpu.cores = cpu_topology.cores
+        cpu.threads = cpu_topology.threads
         cpu.numa = guest_cpu_numa
 
         return cpu
@@ -3772,6 +3774,17 @@ class LibvirtDriver(driver.ComputeDriver):
             else:
                 return allowed_cpus, None, guest_cpu_numa
 
+    def _get_guest_cpu_pinning_config(self, instance_cpu_pin):
+        guest_cpu_tune = vconfig.LibvirtConfigGuestCPUTune()
+
+        for instance_cell in instance_cpu_pin.cells:
+            for vcpu, pcpu in six.iteritems(instance_cell.pinning):
+                pin_cpuset = vconfig.LibvirtConfigGuestCPUTuneVCPUPin()
+                pin_cpuset.id = vcpu
+                pin_cpuset.cpuset = set([pcpu])
+                guest_cpu_tune.vcpupin.append(pin_cpuset)
+        return guest_cpu_tune
+
     def _get_guest_os_type(self, virt_type):
         """Returns the guest OS type based on virt type."""
         if virt_type == "lxc":
@@ -3961,6 +3974,12 @@ class LibvirtDriver(driver.ComputeDriver):
 
         cpuset, cputune, guest_cpu_numa = self._get_guest_numa_config(
                 context, instance, flavor, allowed_cpus)
+        instance_cpu_pinning = hardware.instance_cpu_pinning_from_instance(
+                instance)
+        cpu_topology = None
+        if instance_cpu_pinning:
+            cputune = self._get_guest_cpu_pinning_config(instance_cpu_pinning)
+            cpu_topology = instance_cpu_pinning.cells[0].topology
         guest.cpuset = cpuset
         guest.cputune = cputune
 
@@ -3979,7 +3998,7 @@ class LibvirtDriver(driver.ComputeDriver):
                         int(flavor.extra_specs[key]))
 
         guest.cpu = self._get_guest_cpu_config(
-                flavor, image_meta, guest_cpu_numa)
+                flavor, image_meta, guest_cpu_numa, cpu_topology)
 
         if 'root' in disk_mapping:
             root_device_name = block_device.prepend_dev(
